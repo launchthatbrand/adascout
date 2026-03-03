@@ -1,0 +1,10 @@
+{
+  "extends": "@acme/tsconfig/compiled-package.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "baseUrl": "."
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

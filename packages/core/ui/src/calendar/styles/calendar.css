@@ -1,0 +1,138 @@
+:root {
+  --fc-border-color: lightgray;
+  --fc-page-bg-color: none;
+}
+.dark {
+  --fc-border-color: gray;
+}
+
+/* Removing borders */
+
+.fc-scrollgrid {
+  border: none;
+}
+
+.fc tbody tr:last-child td:first-child {
+  border-left: 0;
+}
+
+.fc tbody tr:last-child td:last-child {
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.fc-theme-standard th {
+  border-right: 0;
+}
+
+/* Setting header size */
+
+.fc-col-header-cell-cushion {
+  display: flex;
+  height: 3.5rem;
+  align-items: center;
+}
+
+/* Setting left time size */
+
+.fc-timegrid-slot {
+  height: 1.5rem;
+}
+
+.fc-timegrid-slot-label-cushion {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 300;
+}
+
+/* Setting cell colors */
+
+td.fc-daygrid-day.fc-day:hover {
+  background-color: hsl(var(--secondary));
+}
+
+td.fc-daygrid-day.fc-day.fc-day-today {
+  background-color: hsl(var(--secondary-foreground));
+}
+
+.fc-day-today {
+  background-color: inherit;
+}
+
+.fc-day-other {
+  background-color: #e5e7eb;
+}
+
+.dark .fc-day-other {
+  background-color: hsl(var(--secondary));
+}
+
+.fc-daygrid-day-top {
+  display: flex;
+  height: 2rem;
+  width: 100%;
+  flex-direction: row;
+  align-items: center;
+}
+
+.fc-daygrid-dot-event:hover {
+  background-color: #eff6ff;
+}
+
+.fc-daygrid-event-harness {
+  padding-right: 0.5rem;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.fc-daygrid-event-harness:hover {
+  transform: scale(1.02);
+  cursor: pointer;
+  background-color: transparent;
+}
+
+.fc-timegrid-event-harness:hover {
+  cursor: pointer;
+  background-color: transparent;
+}
+
+.fc-event-main {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
+
+.fc-event {
+  display: flex;
+  min-width: 100%;
+  border: none;
+}
+
+.fc-daygrid-event {
+  margin-left: 0.25rem;
+  margin-right: 0.25rem;
+}
+
+.fc-timegrid-event {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
+td.fc-daygrid-day.fc-day {
+  pointer-events: none;
+}
+
+.fc-event {
+  pointer-events: all;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.fc-daygrid-event-harness {
+  pointer-events: all;
+}
+
+.fc-daygrid-day-top {
+  pointer-events: none;
+}
