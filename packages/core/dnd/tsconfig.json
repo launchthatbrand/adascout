@@ -1,5 +1,5 @@
 {
-  "extends": "@acme/tsconfig/compiled-package.json",
+  "extends": "../../../tooling/typescript/compiled-package.json",
   "compilerOptions": {
     "jsx": "react-jsx",
     "moduleResolution": "bundler",
