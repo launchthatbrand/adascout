@@ -1,0 +1,161 @@
+/* eslint-disable */
+/**
+ * Generated `ComponentApi` utility.
+ *
+ * THIS CODE IS AUTOMATICALLY GENERATED.
+ *
+ * To regenerate, run `npx convex dev`.
+ * @module
+ */
+
+import type { FunctionReference } from "convex/server";
+
+/**
+ * A utility for referencing a Convex component's exposed API.
+ *
+ * Useful when expecting a parameter like `components.myComponent`.
+ * Usage:
+ * ```ts
+ * async function myFunction(ctx: QueryCtx, component: ComponentApi) {
+ *   return ctx.runQuery(component.someFile.someQuery, { ...args });
+ * }
+ * ```
+ */
+export type ComponentApi<Name extends string | undefined = string | undefined> =
+  {
+    lib: {
+      act: FunctionReference<
+        "action",
+        "internal",
+        {
+          action: string;
+          browserbaseApiKey: string;
+          browserbaseProjectId: string;
+          browserbaseSessionCreateParams?: any;
+          modelApiKey: string;
+          modelName?: string;
+          options?: {
+            timeout?: number;
+            waitUntil?: "load" | "domcontentloaded" | "networkidle";
+          };
+          sessionId?: string;
+          url?: string;
+        },
+        { actionDescription: string; message: string; success: boolean },
+        Name
+      >;
+      agent: FunctionReference<
+        "action",
+        "internal",
+        {
+          browserbaseApiKey: string;
+          browserbaseProjectId: string;
+          browserbaseSessionCreateParams?: any;
+          instruction: string;
+          modelApiKey: string;
+          modelName?: string;
+          options?: {
+            cua?: boolean;
+            maxSteps?: number;
+            systemPrompt?: string;
+            timeout?: number;
+            waitUntil?: "load" | "domcontentloaded" | "networkidle";
+          };
+          sessionId?: string;
+          url?: string;
+        },
+        {
+          actions: Array<{
+            action?: string;
+            reasoning?: string;
+            timeMs?: number;
+            type: string;
+          }>;
+          completed: boolean;
+          message: string;
+          success: boolean;
+        },
+        Name
+      >;
+      endSession: FunctionReference<
+        "action",
+        "internal",
+        {
+          browserbaseApiKey: string;
+          browserbaseProjectId: string;
+          modelApiKey: string;
+          sessionId: string;
+        },
+        { success: boolean },
+        Name
+      >;
+      extract: FunctionReference<
+        "action",
+        "internal",
+        {
+          browserbaseApiKey: string;
+          browserbaseProjectId: string;
+          browserbaseSessionCreateParams?: any;
+          instruction: string;
+          modelApiKey: string;
+          modelName?: string;
+          options?: {
+            timeout?: number;
+            waitUntil?: "load" | "domcontentloaded" | "networkidle";
+          };
+          schema: any;
+          sessionId?: string;
+          url?: string;
+        },
+        any,
+        Name
+      >;
+      observe: FunctionReference<
+        "action",
+        "internal",
+        {
+          browserbaseApiKey: string;
+          browserbaseProjectId: string;
+          browserbaseSessionCreateParams?: any;
+          instruction: string;
+          modelApiKey: string;
+          modelName?: string;
+          options?: {
+            timeout?: number;
+            waitUntil?: "load" | "domcontentloaded" | "networkidle";
+          };
+          sessionId?: string;
+          url?: string;
+        },
+        Array<{
+          arguments?: Array<string>;
+          description: string;
+          method: string;
+          selector: string;
+        }>,
+        Name
+      >;
+      startSession: FunctionReference<
+        "action",
+        "internal",
+        {
+          browserbaseApiKey: string;
+          browserbaseProjectId: string;
+          browserbaseSessionCreateParams?: any;
+          browserbaseSessionId?: string;
+          modelApiKey: string;
+          modelName?: string;
+          options?: {
+            domSettleTimeoutMs?: number;
+            selfHeal?: boolean;
+            systemPrompt?: string;
+            timeout?: number;
+            waitUntil?: "load" | "domcontentloaded" | "networkidle";
+          };
+          url: string;
+        },
+        { browserbaseSessionId?: string; cdpUrl?: string; sessionId: string },
+        Name
+      >;
+    };
+  };

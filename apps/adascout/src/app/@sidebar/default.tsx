@@ -1,9 +1,13 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Building2, CalendarDays, FileText, Home, LayoutDashboard } from "lucide-react";
-
+import {
+  FileCheck2,
+  FileText,
+  FolderSearch2,
+  Home,
+  LayoutDashboard,
+  ShieldCheck,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -15,21 +19,25 @@ import {
   SidebarMenuItem,
 } from "@acme/ui/sidebar";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
 const links = [
-  { href: "/admin", label: "Admin Dashboard", icon: LayoutDashboard },
-  { href: "/admin/businesses", label: "Businesses", icon: Building2 },
-  { href: "/admin/events", label: "Events", icon: CalendarDays },
+  { href: "/admin", label: "ADA Dashboard", icon: LayoutDashboard },
+  { href: "/admin/assets", label: "Assets", icon: FolderSearch2 },
+  { href: "/admin/scans", label: "Scans", icon: ShieldCheck },
+  { href: "/admin/reports", label: "Reports", icon: FileCheck2 },
   { href: "/", label: "Home", icon: Home },
-  { href: "/blog", label: "Blog", icon: FileText },
+  { href: "/about", label: "About", icon: FileText },
 ] as const;
 
 export default function TemplateSidebar() {
   const pathname = usePathname();
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" variant="inset">
       <SidebarHeader className="border-b border-sidebar-border/60 p-4">
-        <div className="text-sm font-semibold">Springtime Admin</div>
+        <div className="text-sm font-semibold">ADA Scount</div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

@@ -5,9 +5,9 @@ import { ConvexReactClient } from "convex/react";
 import { ConvexAuthNextjsProvider } from "@convex-dev/auth/nextjs";
 import { env } from "~/env";
 
-type ProvidersProps = {
+interface ProvidersProps {
   children: React.ReactNode;
-};
+}
 
 export const Providers = ({ children }: ProvidersProps) => {
   const convexClient = React.useMemo(() => {

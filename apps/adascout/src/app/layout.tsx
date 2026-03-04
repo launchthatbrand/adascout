@@ -1,6 +1,6 @@
 import "./styles.css";
 
-import { type Metadata } from "next";
+import type { Metadata } from "next";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import StandardLayout from "@acme/ui/layout/StandardLayout";
 import { ThemeProvider } from "@acme/ui/theme";
@@ -11,9 +11,8 @@ import { cn } from "@acme/ui";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Springtime Tallahassee Festival Guide",
-  description:
-    "Frontend festival guide with interactive map pins, location details, and weekend planning for Springtime Tallahassee.",
+  title: "ADA Scount",
+  description: "ADA Scount scans websites and PDF files for WCAG 2.2 AA issues and remediation guidance.",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 
@@ -68,7 +67,7 @@ export default async function RootLayout({
             <Providers>
               <ThemeProvider>
                 <StandardLayout
-                  appName="Springtime Tallahassee"
+                  appName="ADA Scount"
                   sidebar={showSidebar ? sidebar : undefined}
                   header={showHeader ? header : null}
                   footer={footer}
