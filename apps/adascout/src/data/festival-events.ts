@@ -1,0 +1,123 @@
+import type { FestivalLocation } from "~/types/festival";
+
+export const festivalDates = {
+  rangeLabel: "March 27 - March 28, 2026",
+  saturdayLabel: "Saturday, March 28",
+  fridayLabel: "Friday, March 27",
+};
+
+export const festivalLocations: FestivalLocation[] = [
+  {
+    id: "grand-parade-start",
+    title: "Grand Parade Staging",
+    slug: "grand-parade-staging",
+    category: "parade",
+    lat: 30.4462,
+    lng: -84.2816,
+    address: "7th Ave & Monroe St, Tallahassee, FL",
+    description:
+      "Parade units gather here before heading south through downtown.",
+    startAt: "2026-03-28T09:30:00-04:00",
+    endAt: "2026-03-28T11:00:00-04:00",
+    tags: ["family-friendly", "parade-route"],
+    businessName: "Springtime Tallahassee Parade Operations",
+    businessEmail: "staff@springtimetallahassee.com",
+    businessContactInfo: "(850) 583-9613",
+    ctaLabel: "Parade Details",
+    ctaHref: "https://springtimetallahassee.com/",
+  },
+  {
+    id: "kleman-music-stage",
+    title: "Kleman Plaza Music Festival",
+    slug: "kleman-plaza-music-festival",
+    category: "music",
+    lat: 30.4416,
+    lng: -84.2845,
+    address: "Kleman Plaza, Tallahassee, FL 32301",
+    description:
+      "Live performances and festival programming throughout Friday evening.",
+    startAt: "2026-03-27T18:00:00-04:00",
+    endAt: "2026-03-27T22:00:00-04:00",
+    tags: ["live-music", "downtown"],
+    businessName: "Springtime Tallahassee Music Team",
+    businessEmail: "staff@springtimetallahassee.com",
+    businessContactInfo: "(850) 583-9613",
+    ctaLabel: "Festival Events",
+    ctaHref: "https://springtimetallahassee.com/",
+  },
+  {
+    id: "jubilee-park",
+    title: "Jubilee in the Park",
+    slug: "jubilee-in-the-park",
+    category: "jubilee",
+    lat: 30.4389,
+    lng: -84.2811,
+    address: "Downtown Tallahassee, FL",
+    description:
+      "Arts, crafts, food vendors, and local makers in the festival core.",
+    startAt: "2026-03-28T09:00:00-04:00",
+    endAt: "2026-03-28T17:00:00-04:00",
+    tags: ["vendors", "shopping", "food"],
+    businessName: "Jubilee Vendor Coordination",
+    businessEmail: "staff@springtimetallahassee.com",
+    businessContactInfo: "(850) 583-9613",
+    ctaLabel: "Vendor Applications",
+    ctaHref: "https://springtimetallahassee.com/",
+  },
+  {
+    id: "visitor-info",
+    title: "Visitor Information Tent",
+    slug: "visitor-information-tent",
+    category: "info",
+    lat: 30.4409,
+    lng: -84.2833,
+    address: "Adams St & Jefferson St, Tallahassee, FL",
+    description:
+      "Get accessibility support, maps, lost-and-found, and volunteer assistance.",
+    startAt: "2026-03-28T08:30:00-04:00",
+    endAt: "2026-03-28T18:00:00-04:00",
+    tags: ["accessibility", "help-desk"],
+    businessName: "Festival Information Team",
+    businessEmail: "staff@springtimetallahassee.com",
+    businessContactInfo: "(850) 583-9613",
+    ctaLabel: "Plan Your Visit",
+    ctaHref: "https://springtimetallahassee.com/",
+  },
+  {
+    id: "parking-cascade",
+    title: "Festival Parking Zone",
+    slug: "festival-parking-zone",
+    category: "parking",
+    lat: 30.4365,
+    lng: -84.2859,
+    address: "Cascade Park Area, Tallahassee, FL",
+    description:
+      "Recommended parking area with walking access to parade and jubilee zones.",
+    startAt: "2026-03-28T07:00:00-04:00",
+    endAt: "2026-03-28T19:00:00-04:00",
+    tags: ["parking", "walking-distance"],
+    businessName: "Festival Parking Coordination",
+    businessEmail: "staff@springtimetallahassee.com",
+    businessContactInfo: "(850) 583-9613",
+    ctaLabel: "Parking & Info",
+    ctaHref: "https://springtimetallahassee.com/",
+  },
+];
+
+export const featuredPanels = [
+  {
+    title: "Grand Parade",
+    body: "Celebrate the 58th annual parade through downtown Tallahassee.",
+    href: "https://springtimetallahassee.com/",
+  },
+  {
+    title: "Music Festival",
+    body: "Catch the Friday night lineup at Kleman Plaza.",
+    href: "https://springtimetallahassee.com/",
+  },
+  {
+    title: "Jubilee in the Park",
+    body: "Browse food, crafts, and local vendors on Saturday.",
+    href: "https://springtimetallahassee.com/",
+  },
+];

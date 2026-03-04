@@ -1,0 +1,27 @@
+---
+title: "StandardLayout Slots Explained"
+description: "How @header, @footer, and @sidebar parallel routes map to StandardLayout."
+slug: "layout-slots-explained"
+publishedAt: "2026-02-18"
+author: "LaunchThat Team"
+tags: ["layout", "nextjs", "template"]
+product: "template"
+status: "published"
+---
+
+This template uses Next.js parallel routes to inject layout sections into a
+single root shell.
+
+## Slot mapping
+
+- `src/app/@header/default.tsx` -> header slot
+- `src/app/@footer/default.tsx` -> footer slot
+- `src/app/@sidebar/default.tsx` -> sidebar slot
+
+`src/app/layout.tsx` receives these as `props.header`, `props.footer`, and
+`props.sidebar`.
+
+<Callout title="Why this matters" type="info">
+  Teams can swap header/footer/sidebar behavior per app while keeping a shared
+  layout contract.
+</Callout>
