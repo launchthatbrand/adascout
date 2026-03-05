@@ -1,6 +1,8 @@
 import { AnimatedThemeToggler, Separator } from "@acme/ui";
 
 import AppHeader from "@acme/ui/layout/AppHeader";
+import Image from "next/image";
+import Link from "next/link";
 
 export default function AdminHeaderDefault() {
   return (

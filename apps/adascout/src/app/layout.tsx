@@ -13,7 +13,19 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: "ADA Scout",
   description: "ADA Scout scans websites and PDF files for WCAG 2.2 AA issues and remediation guidance.",
-  icons: [{ rel: "icon", url: "/favicon.ico" }],
+  icons: [
+    {
+      rel: "icon",
+      url: "/adascout_logo_dark_500.png",
+      media: "(prefers-color-scheme: light)",
+    },
+    {
+      rel: "icon",
+      url: "/adascout_logo_light_500.png",
+      media: "(prefers-color-scheme: dark)",
+    },
+    { rel: "apple-touch-icon", url: "/adascout_logo_dark_500.png" },
+  ],
 };
 
 const geist = Geist({

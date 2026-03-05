@@ -19,6 +19,7 @@ import {
   SidebarMenuItem,
 } from "@acme/ui/sidebar";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -44,9 +45,28 @@ export default function TemplateSidebar() {
       className="overflow-hidden border-border/40 text-sidebar-foreground"
     >
       <SidebarHeader className="border-b border-sidebar-border/60 p-4">
-        <div className="text-sidebar-foreground text-sm font-semibold tracking-tight">
-          ADA Scout
-        </div>
+        <Link
+          href="/admin"
+          className="text-sidebar-foreground flex items-center gap-2 text-sm font-semibold tracking-tight"
+        >
+          <Image
+            src="/adascout_logo_dark_500.png"
+            alt="ADA Scout logo"
+            width={50}
+            height={50}
+            className="block rounded-sm dark:hidden"
+            priority
+          />
+          <Image
+            src="/adascout_logo_light_500.png"
+            alt="ADA Scout logo"
+            width={50}
+            height={50}
+            className="hidden rounded-sm dark:block"
+            priority
+          />
+          <span className="group-data-[collapsible=icon]:hidden">ADA Scout</span>
+        </Link>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
