@@ -3,14 +3,11 @@ export default function Page() {
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6 lg:px-8">
       <header>
         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-          Sidebar Demo Route
+          ADA Scout
         </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          Dashboard shell for template testing
-        </h1>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Compliance operations dashboard</h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          Use this route to verify sidebar behavior in the template. Marketing
-          routes can keep sidebar hidden while app routes opt in.
+          Use the admin area to manage assets, scans, findings, and reports. This route remains as a simple shell.
         </p>
       </header>
 
