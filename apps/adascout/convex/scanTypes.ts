@@ -40,6 +40,7 @@ export const findingSourceValidator = v.union(
 );
 
 export const wcagProfileValidator = v.union(v.literal("wcag_2_2_aa"));
+export const reportLayoutValidator = v.union(v.literal("compact"), v.literal("expanded"));
 
 export const scanSummaryValidator = v.object({
   total: v.number(),

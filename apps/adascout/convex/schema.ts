@@ -10,6 +10,7 @@ import {
   scanRunPageStatusValidator,
   scanRunStatusValidator,
   wcagProfileValidator,
+  reportLayoutValidator,
 } from "./scanTypes";
 
 export default defineSchema({
@@ -136,11 +137,17 @@ export default defineSchema({
 
   reports: defineTable({
     assetId: v.id("assets"),
-    scanRunId: v.id("scanRuns"),
+    scanRunId: v.optional(v.id("scanRuns")),
     profile: wcagProfileValidator,
+    name: v.optional(v.string()),
+    layout: reportLayoutValidator,
+    selectedScanRunIds: v.optional(v.array(v.id("scanRuns"))),
+    selectedSeverities: v.optional(v.array(findingSeverityValidator)),
+    selectedSources: v.optional(v.array(findingSourceValidator)),
     formatVersion: v.number(),
     generatedBy: v.id("users"),
     generatedAt: v.number(),
+    updatedAt: v.number(),
     totalFindings: v.number(),
     criticalCount: v.number(),
     seriousCount: v.number(),
@@ -150,7 +157,9 @@ export default defineSchema({
     manualReviewRequiredCount: v.number(),
     markdown: v.string(),
     json: v.string(),
+    pdfHtml: v.optional(v.string()),
   })
     .index("by_asset_generatedAt", ["assetId", "generatedAt"])
-    .index("by_scanRun", ["scanRunId"]),
+    .index("by_scanRun", ["scanRunId"])
+    .index("by_asset_updatedAt", ["assetId", "updatedAt"]),
 });
