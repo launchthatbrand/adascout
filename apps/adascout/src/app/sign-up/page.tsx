@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
+
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useSearchParams } from "next/navigation";
 
 const safeReturnTo = (raw: string | null): string => {
   const value = (raw ?? "").trim();
@@ -44,7 +45,7 @@ export default function SignUpPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-900 via-slate-950 to-black px-4 py-10 text-white">
+    <main className="flex min-h-screen flex-1 items-center justify-center bg-gradient-to-b from-slate-900 via-slate-950 to-black px-4 py-10 text-white">
       <section className="w-full max-w-md rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl">
         <h1 className="text-2xl font-semibold">Create account</h1>
         <p className="mt-2 text-sm text-white/75">Set up a Springtime Tallahassee admin account.</p>
