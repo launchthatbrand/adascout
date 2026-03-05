@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { ColumnDefinition } from "@acme/ui/entity-list";
 import { EntityList } from "@acme/ui/entity-list";
 import { Badge } from "@acme/ui/badge";
@@ -36,6 +36,8 @@ type PageRow = Record<string, unknown> & {
   findingCount?: number;
   updatedAt: number;
   errorMessage?: string;
+  retryCount?: number;
+  terminalErrorCategory?: string;
 };
 
 type FindingRow = Record<string, unknown> & {
@@ -50,6 +52,9 @@ type FindingRow = Record<string, unknown> & {
   target?: string;
   description?: string;
   helpUrl?: string;
+  assignee?: string;
+  dueAt?: number;
+  evidenceHash?: string;
 };
 
 export default function AssetDetailsPage() {
@@ -66,6 +71,11 @@ export default function AssetDetailsPage() {
   const assetId = typeof assetIdParam === "string" ? (assetIdParam as Id<"assets">) : undefined;
 
   const asset = useQuery(api.assets.getMyAsset, assetId ? { assetId } : "skip");
+  const updateFindingStatus = useMutation(api.findings.updateMyFindingStatus);
+  const assignFinding = useMutation(api.findings.assignMyFinding);
+  const actor = useQuery(api.findings.getMyFindingActor, {}) as
+    | { userId: Id<"users"> }
+    | undefined;
   const scanRuns = useQuery(api.scans.listMyScanRuns, assetId ? { assetId, limit: 300 } : "skip");
   const [selectedScanRunId, setSelectedScanRunId] = useState<Id<"scanRuns"> | null>(null);
   const [selectedPageRunId, setSelectedPageRunId] = useState<Id<"scanRunPages"> | null>(null);
@@ -199,6 +209,8 @@ export default function AssetDetailsPage() {
         findingCount: row.findingCount,
         updatedAt: row.updatedAt,
         errorMessage: row.errorMessage,
+        retryCount: row.retryCount,
+        terminalErrorCategory: row.terminalErrorCategory,
       })),
     [pageRuns],
   );
@@ -248,6 +260,12 @@ export default function AssetDetailsPage() {
         cell: (row: PageRow) => (typeof row.findingCount === "number" ? row.findingCount : "—"),
       },
       {
+        id: "retryCount",
+        header: "Retries",
+        accessorKey: "retryCount",
+        cell: (row: PageRow) => row.retryCount ?? 0,
+      },
+      {
         id: "updated",
         header: "Updated",
         accessorKey: "updatedAt",
@@ -273,6 +291,20 @@ export default function AssetDetailsPage() {
           </div>
         ),
       },
+      {
+        id: "error",
+        header: "Error",
+        accessorKey: "errorMessage",
+        cell: (row: PageRow) =>
+          row.errorMessage ? (
+            <span className="text-destructive text-xs">
+              {row.terminalErrorCategory ? `[${row.terminalErrorCategory}] ` : ""}
+              {row.errorMessage}
+            </span>
+          ) : (
+            <span className="text-muted-foreground text-xs">—</span>
+          ),
+      },
     ],
     [effectiveScanRunId],
   );
@@ -282,7 +314,7 @@ export default function AssetDetailsPage() {
       (allFindings ?? []).map((finding) => ({
         id: String(finding._id),
         title: finding.title,
-        status: finding.manualReviewRequired ? "manual-review" : "open",
+        status: finding.status ?? "open",
         severity: finding.severity,
         severityRank: severityRank(finding.severity),
         source: finding.source,
@@ -291,6 +323,9 @@ export default function AssetDetailsPage() {
         target: finding.target,
         description: finding.description,
         helpUrl: finding.helpUrl,
+        assignee: finding.assignee ? String(finding.assignee) : undefined,
+        dueAt: finding.dueAt,
+        evidenceHash: finding.evidenceHash,
       })),
     [allFindings],
   );
@@ -304,7 +339,7 @@ export default function AssetDetailsPage() {
         accessorKey: "status",
         sortable: true,
         cell: (row: FindingRow) => (
-          <Badge variant={row.status === "manual-review" ? "secondary" : "outline"}>{row.status}</Badge>
+          <Badge variant={row.status === "resolved" || row.status === "verified_on_rescan" ? "default" : row.status === "regressed" ? "destructive" : "secondary"}>{row.status}</Badge>
         ),
       },
       {
@@ -341,14 +376,68 @@ export default function AssetDetailsPage() {
         cell: (row: FindingRow) => <span className="text-sm">{row.target ?? "—"}</span>,
       },
       {
+        id: "assignee",
+        header: "Assignee",
+        accessorKey: "assignee",
+        sortable: true,
+        cell: (row: FindingRow) => <span className="text-sm">{row.assignee ? `${row.assignee.slice(0, 10)}...` : "—"}</span>,
+      },
+      {
+        id: "dueAt",
+        header: "Due",
+        accessorKey: "dueAt",
+        sortable: true,
+        cell: (row: FindingRow) => <span className="text-sm">{row.dueAt ? new Date(row.dueAt).toLocaleDateString() : "—"}</span>,
+      },
+      {
         id: "source",
         header: "Source",
         accessorKey: "source",
         sortable: true,
       },
+      {
+        id: "actions",
+        header: "Actions",
+        accessorKey: "id",
+        cell: (row: FindingRow) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: row.id as Id<"findings">, status: "in_progress" })}>
+              Start
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: row.id as Id<"findings">, status: "resolved" })}>
+              Resolve
+            </Button>
+            {actor?.userId ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void assignFinding({ findingId: row.id as Id<"findings">, assignee: actor.userId })}
+              >
+                Assign Me
+              </Button>
+            ) : null}
+          </div>
+        ),
+      },
     ],
-    [],
+    [actor?.userId, assignFinding, updateFindingStatus],
   );
+
+  if (asset === undefined) {
+    return (
+      <section className="w-full p-4">
+        <p className="text-sm">Loading asset...</p>
+      </section>
+    );
+  }
+
+  if (asset === null) {
+    return (
+      <section className="w-full p-4">
+        <p className="text-sm">Asset not found.</p>
+      </section>
+    );
+  }
 
   return (
     <section className="w-full space-y-4 p-4">
@@ -357,10 +446,10 @@ export default function AssetDetailsPage() {
           <div>
             <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Asset</p>
             <h1 className="text-xl font-semibold">
-              {asset?.title ?? asset?.filename ?? asset?.sourceUrl ?? String(assetId ?? "unknown")}
+              {asset.title ?? asset.filename ?? asset.sourceUrl ?? String(assetId ?? "unknown")}
             </h1>
             <p className="text-muted-foreground mt-1 text-sm break-all">
-              {asset?.kind === "url" ? asset?.sourceUrl ?? asset?.normalizedUrl : asset?.filename ?? "PDF"}
+              {asset.kind === "url" ? asset.sourceUrl ?? asset.normalizedUrl : asset.filename ?? "PDF"}
             </p>
           </div>
           <Link href="/admin/assets" className="text-sm underline underline-offset-4">
@@ -441,6 +530,9 @@ export default function AssetDetailsPage() {
                   Rule: {finding.ruleId}
                   {finding.target ? ` · Target: ${finding.target}` : ""}
                 </p>
+                {finding.evidenceHash ? (
+                  <p className="text-muted-foreground text-xs">evidence: {finding.evidenceHash.slice(0, 24)}…</p>
+                ) : null}
                 {finding.description ? <p className="text-sm">{finding.description}</p> : null}
                 {finding.helpUrl ? (
                   <a

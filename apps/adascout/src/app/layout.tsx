@@ -11,8 +11,8 @@ import { cn } from "@acme/ui";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "ADA Scount",
-  description: "ADA Scount scans websites and PDF files for WCAG 2.2 AA issues and remediation guidance.",
+  title: "ADA Scout",
+  description: "ADA Scout scans websites and PDF files for WCAG 2.2 AA issues and remediation guidance.",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 
@@ -67,7 +67,7 @@ export default async function RootLayout({
             <Providers>
               <ThemeProvider>
                 <StandardLayout
-                  appName="ADA Scount"
+                  appName="ADA Scout"
                   sidebar={showSidebar ? sidebar : undefined}
                   header={showHeader ? header : null}
                   footer={footer}

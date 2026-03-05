@@ -32,6 +32,19 @@ interface NormalizedFinding {
   codeSnippet?: string;
   manualReviewRequired?: boolean;
   confidence?: number;
+  status?: "open" | "in_progress" | "resolved" | "verified_on_rescan" | "regressed";
+  resolvedAt?: number;
+  verifiedAt?: number;
+  assignee?: Id<"users">;
+  dueAt?: number;
+  resolutionNotes?: string;
+  lastStateChangeAt?: number;
+  evidenceHash?: string;
+  domSnippet?: string;
+  selectorSnapshot?: string;
+  pageTitle?: string;
+  capturedAt?: number;
+  screenshotStorageId?: Id<"_storage">;
 }
 
 interface ScanRunProcessingSnapshot {
@@ -55,6 +68,7 @@ interface ScanRunPageProcessingSnapshot {
   pageRun: {
     _id: Id<"scanRunPages">;
     pageUrl: string;
+    createdAt: number;
   };
 }
 
@@ -178,6 +192,34 @@ const parsePositiveIntEnv = (value: string | undefined, fallback: number): numbe
   return parsed;
 };
 
+const computeEvidenceHash = (args: {
+  source: "axe" | "ibm" | "pdf" | "stagehand";
+  ruleId: string;
+  target?: string;
+  pageUrl?: string;
+  codeSnippet?: string;
+}) =>
+  [
+    args.source,
+    args.ruleId,
+    args.target ?? "",
+    args.pageUrl ?? "",
+    args.codeSnippet ?? "",
+  ]
+    .join("|")
+    .toLowerCase();
+
+const categorizeScanError = (error: unknown): string => {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (message.includes("timed out")) return "timeout";
+  if (message.includes("429")) return "rate_limit";
+  if (message.includes("401") || message.includes("unauthorized")) return "auth";
+  if (message.includes("invalid provider")) return "provider";
+  if (message.includes("fetch")) return "network";
+  if (message.includes("schema")) return "schema";
+  return "unknown";
+};
+
 const isStagehandSessionLimitError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
@@ -185,17 +227,25 @@ const isStagehandSessionLimitError = (error: unknown): boolean => {
 };
 
 const getSessionRuntimeConfig = (): {
+  planTier: "free" | "paid";
   maxConcurrentSessions: number;
   pagesPerSession: number;
   leaseTtlMs: number;
-} => ({
-  maxConcurrentSessions: parsePositiveIntEnv(
+  leaseAcquireTimeoutMs: number;
+} => {
+  const planTier = (process.env.SCANNER_PLAN_TIER ?? "free").toLowerCase() === "paid" ? "paid" : "free";
+  const configuredConcurrent = parsePositiveIntEnv(
     process.env.SCANNER_MAX_CONCURRENT_SESSIONS,
     DEFAULT_MAX_CONCURRENT_SESSIONS,
-  ),
-  pagesPerSession: parsePositiveIntEnv(process.env.SCANNER_PAGES_PER_SESSION, DEFAULT_PAGES_PER_SESSION),
-  leaseTtlMs: parsePositiveIntEnv(process.env.SCANNER_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS),
-});
+  );
+  return {
+    planTier,
+    maxConcurrentSessions: planTier === "free" ? 1 : Math.max(1, configuredConcurrent),
+    pagesPerSession: parsePositiveIntEnv(process.env.SCANNER_PAGES_PER_SESSION, DEFAULT_PAGES_PER_SESSION),
+    leaseTtlMs: parsePositiveIntEnv(process.env.SCANNER_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS),
+    leaseAcquireTimeoutMs: parsePositiveIntEnv(process.env.SCANNER_LEASE_ACQUIRE_TIMEOUT_MS, 45_000),
+  };
+};
 
 const startSharedSessionWithRetry = async (
   ctx: GenericActionCtx<any>,
@@ -256,7 +306,7 @@ const normalizeStagehandExtractedFindings = (extracted: unknown, url: string): N
       ? extracted
       : [];
 
-  const findings = rawItems.map((item, index) => {
+  const findings: Array<NormalizedFinding> = rawItems.map((item, index) => {
     const record = (item ?? {}) as Record<string, unknown>;
     const title =
       (typeof record.title === "string" && record.title.trim().length > 0
@@ -295,6 +345,19 @@ const normalizeStagehandExtractedFindings = (extracted: unknown, url: string): N
       pageUrl: url,
       manualReviewRequired: true,
       confidence: 0.75,
+      status: "open",
+      lastStateChangeAt: nowMs(),
+      capturedAt: nowMs(),
+      selectorSnapshot: target,
+      domSnippet: typeof record.description === "string" ? record.description : undefined,
+      pageTitle: typeof record.pageTitle === "string" ? record.pageTitle : undefined,
+      evidenceHash: computeEvidenceHash({
+        source: "stagehand",
+        ruleId,
+        target,
+        pageUrl: url,
+        codeSnippet: typeof record.description === "string" ? record.description : undefined,
+      }),
     };
   });
 
@@ -359,6 +422,14 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
         help: typeof violation.help === "string" ? violation.help : undefined,
         helpUrl: typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
         pageUrl,
+        status: "open",
+        lastStateChangeAt: nowMs(),
+        capturedAt: nowMs(),
+        evidenceHash: computeEvidenceHash({
+          source: "axe",
+          ruleId: String(violation.id ?? "axe.rule"),
+          pageUrl,
+        }),
       });
       continue;
     }
@@ -379,6 +450,26 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
           : undefined,
         pageUrl,
         confidence: 0.95,
+        status: "open",
+        lastStateChangeAt: nowMs(),
+        capturedAt: nowMs(),
+        selectorSnapshot: Array.isArray((node as { target?: unknown[] }).target)
+          ? String((node as { target?: unknown[] }).target?.[0] ?? "")
+          : undefined,
+        domSnippet: typeof (node as { html?: unknown }).html === "string"
+          ? String((node as { html?: unknown }).html)
+          : undefined,
+        evidenceHash: computeEvidenceHash({
+          source: "axe",
+          ruleId: String(violation.id ?? "axe.rule"),
+          target: Array.isArray((node as { target?: unknown[] }).target)
+            ? String((node as { target?: unknown[] }).target?.[0] ?? "")
+            : undefined,
+          pageUrl,
+          codeSnippet: typeof (node as { html?: unknown }).html === "string"
+            ? String((node as { html?: unknown }).html)
+            : undefined,
+        }),
       });
     }
   }
@@ -415,6 +506,16 @@ const _normalizeIbmFindings = (input: unknown, pageUrl: string): NormalizedFindi
       target: typeof firstTarget === "string" ? String(firstTarget) : undefined,
       pageUrl,
       confidence: 0.85,
+      status: "open",
+      lastStateChangeAt: nowMs(),
+      capturedAt: nowMs(),
+      selectorSnapshot: typeof firstTarget === "string" ? String(firstTarget) : undefined,
+      evidenceHash: computeEvidenceHash({
+        source: "ibm",
+        ruleId: String((result as { ruleId?: unknown }).ruleId ?? "ibm.rule"),
+        target: typeof firstTarget === "string" ? String(firstTarget) : undefined,
+        pageUrl,
+      }),
     });
   }
   return output;
@@ -715,6 +816,14 @@ const scanPdfFromFileUrl = async (fileUrl: string): Promise<NormalizedFinding[]>
         pageNumber: pageIndex,
         manualReviewRequired: true,
         confidence: 0.9,
+        status: "open",
+        lastStateChangeAt: nowMs(),
+        capturedAt: nowMs(),
+        evidenceHash: computeEvidenceHash({
+          source: "pdf",
+          ruleId: "pdf.text_layer.missing",
+          target: `page:${String(pageIndex)}`,
+        }),
       });
     }
   }
@@ -727,6 +836,13 @@ const scanPdfFromFileUrl = async (fileUrl: string): Promise<NormalizedFinding[]>
       description: "No immediate text-layer red flags were detected automatically.",
       manualReviewRequired: true,
       confidence: 0.4,
+      status: "open",
+      lastStateChangeAt: nowMs(),
+      capturedAt: nowMs(),
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.scan.completed",
+      }),
     });
   }
   return findings;
@@ -801,7 +917,7 @@ export const processScanRun = internalAction({
 
       const summary = computeSummary(findings);
       const markdown = [
-        `# ADA Scount Report`,
+        `# ADA Scout Report`,
         ``,
         `- Asset: ${asset.title ?? asset.sourceUrl ?? asset.filename ?? String(asset._id)}`,
         `- Profile: ${scanRun.profile}`,
@@ -917,9 +1033,11 @@ export const scanQueuedPage = internalAction({
     )) as ScanRunPageProcessingSnapshot | null;
     if (!processing) return null;
     const { scanRun, pageRun } = processing;
+    const queueWaitMs = Math.max(0, nowMs() - pageRun.createdAt);
     const claimed = await ctx.runMutation(internal.scans.claimScanRunPageForExecution, {
       scanRunId: scanRun._id,
       pageRunId: pageRun._id,
+      queueWaitMs,
     });
     if (!claimed) {
       console.info(
@@ -954,6 +1072,7 @@ export const scanQueuedPage = internalAction({
       await ctx.runMutation(internal.scans.completeScanRunPage, {
         pageRunId: pageRun._id,
         findingCount: findings.length,
+        extractLatencyMs: nowMs() - startedAt,
       });
       console.info(
         JSON.stringify({
@@ -970,6 +1089,7 @@ export const scanQueuedPage = internalAction({
       await ctx.runMutation(internal.scans.failScanRunPage, {
         pageRunId: pageRun._id,
         errorMessage: error instanceof Error ? error.message : String(error),
+        errorCategory: categorizeScanError(error),
       });
       console.error(
         JSON.stringify({
@@ -1012,6 +1132,7 @@ export const processQueuedPagesWithSessionLease = internalAction({
     const workerId =
       args.workerId ?? `${String(args.scanRunId)}:${nowMs()}:${Math.random().toString(36).slice(2, 10)}`;
     const leaseNow = nowMs();
+    const leaseAcquireStartedAt = nowMs();
     await ctx.runMutation(internal.scans.cleanupExpiredSessionLeases, {
       leaseKey,
       now: leaseNow,
@@ -1023,9 +1144,26 @@ export const processQueuedPagesWithSessionLease = internalAction({
       maxConcurrent: runtime.maxConcurrentSessions,
       ttlMs: runtime.leaseTtlMs,
       now: leaseNow,
-      planTier: runtime.maxConcurrentSessions > 1 ? "paid" : "free",
+      planTier: runtime.planTier,
+    });
+    logScanPhase({
+      event: "lease_acquire_result",
+      scanRunId: args.scanRunId,
+      workerId,
+      leaseAcquired,
+      leaseAcquireMs: nowMs() - leaseAcquireStartedAt,
+      maxConcurrentSessions: runtime.maxConcurrentSessions,
+      planTier: runtime.planTier,
     });
     if (!leaseAcquired) {
+      if (nowMs() - leaseAcquireStartedAt > runtime.leaseAcquireTimeoutMs) {
+        logScanPhase({
+          event: "lease_acquire_timeout",
+          scanRunId: args.scanRunId,
+          workerId,
+          timeoutMs: runtime.leaseAcquireTimeoutMs,
+        });
+      }
       return { processedPages: 0, leaseAcquired: false, claimedPages: 0 };
     }
 
@@ -1067,10 +1205,12 @@ export const processQueuedPagesWithSessionLease = internalAction({
         })) as ScanRunPageProcessingSnapshot | null;
         if (!processing) continue;
         const { scanRun, pageRun } = processing;
+        const queueWaitMs = Math.max(0, nowMs() - pageRun.createdAt);
 
         const claimedForExecution = await ctx.runMutation(internal.scans.claimScanRunPageForExecution, {
           scanRunId: scanRun._id,
           pageRunId: pageRun._id,
+          queueWaitMs,
         });
         if (!claimedForExecution) continue;
 
@@ -1104,6 +1244,7 @@ export const processQueuedPagesWithSessionLease = internalAction({
           await ctx.runMutation(internal.scans.completeScanRunPage, {
             pageRunId: pageRun._id,
             findingCount: findings.length,
+            extractLatencyMs: nowMs() - pageStartedAt,
           });
           logScanPhase({
             event: "page_scan_complete",
@@ -1133,6 +1274,7 @@ export const processQueuedPagesWithSessionLease = internalAction({
             await ctx.runMutation(internal.scans.failScanRunPage, {
               pageRunId: pageRun._id,
               errorMessage,
+              errorCategory: categorizeScanError(error),
             });
           }
           logScanPhase({

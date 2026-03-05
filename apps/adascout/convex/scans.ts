@@ -4,6 +4,7 @@ import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
 import {
+  findingStatusValidator,
   findingSeverityValidator,
   findingSourceValidator,
   scanRunModeValidator,
@@ -53,6 +54,23 @@ const computeSummary = (findings: FindingSummaryRow[]) => {
   }
   return summary;
 };
+
+const computeEvidenceHash = (args: {
+  source: "axe" | "ibm" | "pdf" | "stagehand";
+  ruleId: string;
+  target?: string;
+  pageUrl?: string;
+  codeSnippet?: string;
+}) =>
+  [
+    args.source,
+    args.ruleId,
+    args.target ?? "",
+    args.pageUrl ?? "",
+    args.codeSnippet ?? "",
+  ]
+    .join("|")
+    .toLowerCase();
 
 const deleteScanRunCascade = async (ctx: MutationCtx, scanRunId: Id<"scanRuns">): Promise<void> => {
   const scanRun = await ctx.db.get(scanRunId);
@@ -120,7 +138,7 @@ const buildReportMarkdown = (args: {
   failedPages?: number;
 }) =>
   [
-    "# ADA Scount Report",
+    "# ADA Scout Report",
     "",
     `- Asset: ${args.assetLabel}`,
     `- Profile: ${args.profile}`,
@@ -247,6 +265,7 @@ export const rerunSelectedPages = mutation({
     scanRunId: v.id("scanRuns"),
     pageRunIds: v.optional(v.array(v.id("scanRunPages"))),
     onlyFailed: v.optional(v.boolean()),
+    includeAllPages: v.optional(v.boolean()),
   },
   returns: v.number(),
   handler: async (ctx, args) => {
@@ -264,11 +283,28 @@ export const rerunSelectedPages = mutation({
     const allowedIds = new Set(rows.map((row) => row._id));
     const requestedIds = (args.pageRunIds ?? []).filter((id) => allowedIds.has(id));
 
+    const eligibleByLifecycle = new Set<Id<"scanRunPages">>();
+    const allRunFindings = await ctx.db
+      .query("findings")
+      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .collect();
+    for (const finding of allRunFindings) {
+      if (!finding.scanRunPageId) continue;
+      const findingStatus = finding.status ?? "open";
+      if (findingStatus === "resolved" || findingStatus === "in_progress") {
+        eligibleByLifecycle.add(finding.scanRunPageId);
+      }
+    }
+
     const finalTargetIds: Id<"scanRunPages">[] =
       requestedIds.length > 0
         ? requestedIds
         : rows
-            .filter((row) => (args.onlyFailed ? row.status === "failed" : true))
+            .filter((row) => {
+              if (args.onlyFailed && row.status !== "failed") return false;
+              if (args.includeAllPages) return true;
+              return eligibleByLifecycle.has(row._id);
+            })
             .map((row) => row._id);
 
     if (finalTargetIds.length === 0) {
@@ -537,6 +573,11 @@ export const listMyScanRunPages = query({
       failedAt: v.optional(v.number()),
       errorMessage: v.optional(v.string()),
       findingCount: v.optional(v.number()),
+      retryCount: v.optional(v.number()),
+      lastQueueWaitMs: v.optional(v.number()),
+      lastExtractLatencyMs: v.optional(v.number()),
+      lastErrorCategory: v.optional(v.string()),
+      terminalErrorCategory: v.optional(v.string()),
       createdAt: v.number(),
       updatedAt: v.number(),
     }),
@@ -637,6 +678,7 @@ export const upsertScanRunPages = internalMutation({
         normalizedUrl: pageUrl,
         status: "queued",
         attempt: 0,
+        retryCount: 0,
         createdAt: now,
         updatedAt: now,
       });
@@ -803,6 +845,7 @@ export const getScanRunPageForProcessing = internalQuery({
         normalizedUrl: v.string(),
         status: scanRunPageStatusValidator,
         attempt: v.number(),
+        createdAt: v.number(),
       }),
     }),
     v.null(),
@@ -825,6 +868,7 @@ export const getScanRunPageForProcessing = internalQuery({
         normalizedUrl: pageRun.normalizedUrl,
         status: pageRun.status,
         attempt: pageRun.attempt,
+        createdAt: pageRun.createdAt,
       },
     };
   },
@@ -851,7 +895,10 @@ export const isScanRunCanceledForWorkflow = internalMutation({
 });
 
 export const markScanRunPageRunning = internalMutation({
-  args: { pageRunId: v.id("scanRunPages") },
+  args: {
+    pageRunId: v.id("scanRunPages"),
+    queueWaitMs: v.optional(v.number()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const page = await ctx.db.get(args.pageRunId);
@@ -860,8 +907,11 @@ export const markScanRunPageRunning = internalMutation({
     await ctx.db.patch(args.pageRunId, {
       status: "running",
       attempt: page.attempt + 1,
+      retryCount: Math.max(0, page.attempt),
+      lastQueueWaitMs: args.queueWaitMs,
       startedAt: now,
       errorMessage: undefined,
+      lastErrorCategory: undefined,
       updatedAt: now,
     });
     await recomputeScanRunProgress(ctx, page.scanRunId);
@@ -870,7 +920,11 @@ export const markScanRunPageRunning = internalMutation({
 });
 
 export const claimScanRunPageForExecution = internalMutation({
-  args: { scanRunId: v.id("scanRuns"), pageRunId: v.id("scanRunPages") },
+  args: {
+    scanRunId: v.id("scanRuns"),
+    pageRunId: v.id("scanRunPages"),
+    queueWaitMs: v.optional(v.number()),
+  },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const page = await ctx.db.get(args.pageRunId);
@@ -881,8 +935,11 @@ export const claimScanRunPageForExecution = internalMutation({
     await ctx.db.patch(args.pageRunId, {
       status: "running",
       attempt: page.attempt + 1,
+      retryCount: Math.max(0, page.attempt),
+      lastQueueWaitMs: args.queueWaitMs,
       startedAt: now,
       errorMessage: undefined,
+      lastErrorCategory: undefined,
       updatedAt: now,
     });
     await recomputeScanRunProgress(ctx, args.scanRunId);
@@ -891,7 +948,11 @@ export const claimScanRunPageForExecution = internalMutation({
 });
 
 export const completeScanRunPage = internalMutation({
-  args: { pageRunId: v.id("scanRunPages"), findingCount: v.number() },
+  args: {
+    pageRunId: v.id("scanRunPages"),
+    findingCount: v.number(),
+    extractLatencyMs: v.optional(v.number()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const page = await ctx.db.get(args.pageRunId);
@@ -901,6 +962,7 @@ export const completeScanRunPage = internalMutation({
       status: "completed",
       completedAt: now,
       findingCount: args.findingCount,
+      lastExtractLatencyMs: args.extractLatencyMs,
       errorMessage: undefined,
       updatedAt: now,
     });
@@ -910,7 +972,11 @@ export const completeScanRunPage = internalMutation({
 });
 
 export const failScanRunPage = internalMutation({
-  args: { pageRunId: v.id("scanRunPages"), errorMessage: v.string() },
+  args: {
+    pageRunId: v.id("scanRunPages"),
+    errorMessage: v.string(),
+    errorCategory: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const page = await ctx.db.get(args.pageRunId);
@@ -920,6 +986,8 @@ export const failScanRunPage = internalMutation({
       status: "failed",
       failedAt: now,
       errorMessage: args.errorMessage,
+      lastErrorCategory: args.errorCategory,
+      terminalErrorCategory: args.errorCategory,
       updatedAt: now,
     });
     await recomputeScanRunProgress(ctx, page.scanRunId);
@@ -950,6 +1018,7 @@ export const preparePageRerun = internalMutation({
         failedAt: undefined,
         errorMessage: undefined,
         findingCount: undefined,
+        terminalErrorCategory: undefined,
         updatedAt: now,
       });
       updated += 1;
@@ -988,6 +1057,19 @@ export const replaceFindingsForRun = internalMutation({
         codeSnippet: v.optional(v.string()),
         manualReviewRequired: v.optional(v.boolean()),
         confidence: v.optional(v.number()),
+        status: v.optional(findingStatusValidator),
+        resolvedAt: v.optional(v.number()),
+        verifiedAt: v.optional(v.number()),
+        assignee: v.optional(v.id("users")),
+        dueAt: v.optional(v.number()),
+        resolutionNotes: v.optional(v.string()),
+        lastStateChangeAt: v.optional(v.number()),
+        evidenceHash: v.optional(v.string()),
+        domSnippet: v.optional(v.string()),
+        selectorSnapshot: v.optional(v.string()),
+        pageTitle: v.optional(v.string()),
+        capturedAt: v.optional(v.number()),
+        screenshotStorageId: v.optional(v.id("_storage")),
       }),
     ),
   },
@@ -1006,6 +1088,20 @@ export const replaceFindingsForRun = internalMutation({
         ...finding,
         assetId: args.assetId,
         scanRunId: args.scanRunId,
+        status: finding.status ?? "open",
+        lastStateChangeAt: finding.lastStateChangeAt ?? now,
+        capturedAt: finding.capturedAt ?? now,
+        evidenceHash:
+          finding.evidenceHash ??
+          computeEvidenceHash({
+            source: finding.source,
+            ruleId: finding.ruleId,
+            target: finding.target,
+            pageUrl: finding.pageUrl,
+            codeSnippet: finding.codeSnippet,
+          }),
+        selectorSnapshot: finding.selectorSnapshot ?? finding.target,
+        domSnippet: finding.domSnippet ?? finding.codeSnippet,
         createdAt: now,
       });
     }
@@ -1033,6 +1129,19 @@ export const replaceFindingsForPage = internalMutation({
         codeSnippet: v.optional(v.string()),
         manualReviewRequired: v.optional(v.boolean()),
         confidence: v.optional(v.number()),
+        status: v.optional(findingStatusValidator),
+        resolvedAt: v.optional(v.number()),
+        verifiedAt: v.optional(v.number()),
+        assignee: v.optional(v.id("users")),
+        dueAt: v.optional(v.number()),
+        resolutionNotes: v.optional(v.string()),
+        lastStateChangeAt: v.optional(v.number()),
+        evidenceHash: v.optional(v.string()),
+        domSnippet: v.optional(v.string()),
+        selectorSnapshot: v.optional(v.string()),
+        pageTitle: v.optional(v.string()),
+        capturedAt: v.optional(v.number()),
+        screenshotStorageId: v.optional(v.id("_storage")),
       }),
     ),
   },
@@ -1052,6 +1161,20 @@ export const replaceFindingsForPage = internalMutation({
         assetId: args.assetId,
         scanRunId: args.scanRunId,
         scanRunPageId: args.scanRunPageId,
+        status: finding.status ?? "open",
+        lastStateChangeAt: finding.lastStateChangeAt ?? now,
+        capturedAt: finding.capturedAt ?? now,
+        evidenceHash:
+          finding.evidenceHash ??
+          computeEvidenceHash({
+            source: finding.source,
+            ruleId: finding.ruleId,
+            target: finding.target,
+            pageUrl: finding.pageUrl,
+            codeSnippet: finding.codeSnippet,
+          }),
+        selectorSnapshot: finding.selectorSnapshot ?? finding.target,
+        domSnippet: finding.domSnippet ?? finding.codeSnippet,
         createdAt: now,
       });
     }

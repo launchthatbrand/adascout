@@ -7,7 +7,7 @@ export default function HomePage() {
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-4 py-14 sm:px-6 lg:px-8">
       <header className="space-y-4">
-        <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">ADA Scount</p>
+        <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">ADA Scout</p>
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
           Accessibility scanning and remediation guidance for websites and PDFs.
         </h1>

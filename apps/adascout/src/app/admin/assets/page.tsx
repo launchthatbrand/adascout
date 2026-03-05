@@ -260,7 +260,7 @@ export default function AssetsPage() {
           <DialogHeader>
             <DialogTitle>Add website URL</DialogTitle>
             <DialogDescription>
-              ADA Scount will run WCAG 2.2 AA automated checks and generate remediation guidance.
+              ADA Scout will run WCAG 2.2 AA automated checks and generate remediation guidance.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

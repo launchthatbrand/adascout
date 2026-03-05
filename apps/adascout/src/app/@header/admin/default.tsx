@@ -6,7 +6,7 @@ export default function AdminHeaderDefault() {
   return (
     <div className="sticky top-0 z-50 overflow-hidden rounded-t-3xl!">
       <AppHeader
-        appName="MintStation"
+        appName="ADA Scout"
         sidebarToggle={true}
         showLogo={false}
         className="border-border/40 bg-background/60 p-1! overflow-hidden rounded-t-3xl! shadow-sm backdrop-blur-md"

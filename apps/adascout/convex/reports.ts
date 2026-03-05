@@ -40,6 +40,12 @@ const reportValidator = v.object({
   selectedScanRunIds: v.optional(v.array(v.id("scanRuns"))),
   selectedSeverities: v.optional(v.array(severityValidator)),
   selectedSources: v.optional(v.array(sourceValidator)),
+  logoStorageId: v.optional(v.id("_storage")),
+  companyName: v.optional(v.string()),
+  footerText: v.optional(v.string()),
+  baselineScanRunId: v.optional(v.id("scanRuns")),
+  includeNewResolvedRegressed: v.optional(v.boolean()),
+  filterSnapshotJson: v.optional(v.string()),
   formatVersion: v.number(),
   generatedAt: v.number(),
   updatedAt: v.number(),
@@ -128,6 +134,12 @@ export const upsertReportForScanRun = internalMutation({
       selectedScanRunIds: [args.scanRunId],
       selectedSeverities: undefined,
       selectedSources: undefined,
+      logoStorageId: undefined,
+      companyName: undefined,
+      footerText: undefined,
+      baselineScanRunId: undefined,
+      includeNewResolvedRegressed: false,
+      filterSnapshotJson: undefined,
       formatVersion: 2,
       generatedBy: args.generatedBy,
       generatedAt: args.generatedAt,
@@ -169,6 +181,12 @@ export const createMyReport = mutation({
       selectedScanRunIds: undefined,
       selectedSeverities: undefined,
       selectedSources: undefined,
+      logoStorageId: undefined,
+      companyName: undefined,
+      footerText: undefined,
+      baselineScanRunId: undefined,
+      includeNewResolvedRegressed: false,
+      filterSnapshotJson: undefined,
       formatVersion: 2,
       generatedAt: now,
       updatedAt: now,
@@ -194,6 +212,11 @@ export const updateMyReportConfig = mutation({
     selectedScanRunIds: v.optional(v.array(v.id("scanRuns"))),
     selectedSeverities: v.optional(v.array(severityValidator)),
     selectedSources: v.optional(v.array(sourceValidator)),
+    logoStorageId: v.optional(v.id("_storage")),
+    companyName: v.optional(v.string()),
+    footerText: v.optional(v.string()),
+    baselineScanRunId: v.optional(v.id("scanRuns")),
+    includeNewResolvedRegressed: v.optional(v.boolean()),
   },
   returns: reportValidator,
   handler: async (ctx, args) => {
@@ -236,6 +259,32 @@ export const updateMyReportConfig = mutation({
         args.selectedSources && args.selectedSources.length > 0
           ? Array.from(new Set(args.selectedSources))
           : undefined,
+      logoStorageId: args.logoStorageId ?? report.logoStorageId,
+      companyName: args.companyName?.trim() ?? report.companyName,
+      footerText: args.footerText?.trim() ?? report.footerText,
+      baselineScanRunId: args.baselineScanRunId ?? report.baselineScanRunId,
+      includeNewResolvedRegressed: args.includeNewResolvedRegressed ?? report.includeNewResolvedRegressed,
+      filterSnapshotJson: JSON.stringify(
+        {
+          selectedScanRunIds:
+            args.selectedScanRunIds && args.selectedScanRunIds.length > 0
+              ? Array.from(new Set(args.selectedScanRunIds))
+              : report.selectedScanRunIds ?? [],
+          selectedSeverities:
+            args.selectedSeverities && args.selectedSeverities.length > 0
+              ? Array.from(new Set(args.selectedSeverities))
+              : report.selectedSeverities ?? [],
+          selectedSources:
+            args.selectedSources && args.selectedSources.length > 0
+              ? Array.from(new Set(args.selectedSources))
+              : report.selectedSources ?? [],
+          baselineScanRunId: args.baselineScanRunId ?? report.baselineScanRunId,
+          includeNewResolvedRegressed:
+            args.includeNewResolvedRegressed ?? report.includeNewResolvedRegressed ?? false,
+        },
+        null,
+        2,
+      ),
       updatedAt: nowMs(),
     });
 
@@ -282,6 +331,9 @@ export const listMyReports = query({
       minorCount: v.number(),
       infoCount: v.number(),
       profile: profileValidator,
+      companyName: v.optional(v.string()),
+      baselineScanRunId: v.optional(v.id("scanRuns")),
+      includeNewResolvedRegressed: v.optional(v.boolean()),
       assetTitle: v.optional(v.string()),
       assetSource: v.optional(v.string()),
     }),
@@ -323,6 +375,9 @@ export const listMyReports = query({
           minorCount: row.minorCount,
           infoCount: row.infoCount,
           profile: row.profile,
+          companyName: row.companyName,
+          baselineScanRunId: row.baselineScanRunId,
+          includeNewResolvedRegressed: row.includeNewResolvedRegressed,
           assetTitle: asset?.title ?? asset?.filename ?? undefined,
           assetSource: asset?.sourceUrl ?? asset?.normalizedUrl ?? asset?.filename ?? undefined,
         };
@@ -358,6 +413,11 @@ export const getMyReportPreviewData = query({
       title: v.string(),
       source: v.optional(v.string()),
     }),
+    branding: v.object({
+      logoStorageId: v.optional(v.id("_storage")),
+      companyName: v.optional(v.string()),
+      footerText: v.optional(v.string()),
+    }),
     availableRuns: v.array(
       v.object({
         scanRunId: v.id("scanRuns"),
@@ -369,6 +429,13 @@ export const getMyReportPreviewData = query({
       scanRunIds: v.array(v.id("scanRuns")),
       severities: v.array(severityValidator),
       sources: v.array(sourceValidator),
+    }),
+    delta: v.object({
+      baselineScanRunId: v.optional(v.id("scanRuns")),
+      includeNewResolvedRegressed: v.boolean(),
+      newCount: v.number(),
+      resolvedCount: v.number(),
+      regressedCount: v.number(),
     }),
     summary: summaryValidator,
     findings: v.array(
@@ -385,6 +452,9 @@ export const getMyReportPreviewData = query({
         pageUrl: v.optional(v.string()),
         helpUrl: v.optional(v.string()),
         manualReviewRequired: v.optional(v.boolean()),
+        status: v.optional(v.string()),
+        evidenceHash: v.optional(v.string()),
+        pageTitle: v.optional(v.string()),
         createdAt: v.number(),
       }),
     ),
@@ -402,6 +472,7 @@ export const getMyReportPreviewData = query({
             description: v.optional(v.string()),
             target: v.optional(v.string()),
             helpUrl: v.optional(v.string()),
+          status: v.optional(v.string()),
           }),
         ),
       }),
@@ -442,6 +513,16 @@ export const getMyReportPreviewData = query({
         : null;
 
     const findings = [];
+    const baselineScanRunId = report.baselineScanRunId;
+    const baselineRows = baselineScanRunId
+      ? await ctx.db
+        .query("findings")
+        .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", baselineScanRunId))
+        .collect()
+      : [];
+    const baselineKeys = new Set(
+      baselineRows.map((row) => `${row.ruleId}|${row.pageUrl ?? ""}|${row.target ?? ""}`),
+    );
     for (const runId of selectedRunIds) {
       const rows = await ctx.db
         .query("findings")
@@ -463,6 +544,9 @@ export const getMyReportPreviewData = query({
           pageUrl: row.pageUrl,
           helpUrl: row.helpUrl,
           manualReviewRequired: row.manualReviewRequired,
+          status: row.status,
+          evidenceHash: row.evidenceHash,
+          pageTitle: row.pageTitle,
           createdAt: row.createdAt,
         });
       }
@@ -495,6 +579,7 @@ export const getMyReportPreviewData = query({
           description?: string;
           target?: string;
           helpUrl?: string;
+          status?: string;
         }[];
       }
     >();
@@ -514,6 +599,7 @@ export const getMyReportPreviewData = query({
         description: row.description,
         target: row.target,
         helpUrl: row.helpUrl,
+        status: row.status,
       });
       current.findingCount += 1;
       groupedByPageMap.set(pageUrl, current);
@@ -521,6 +607,26 @@ export const getMyReportPreviewData = query({
     const groupedByPage = Array.from(groupedByPageMap.values()).sort(
       (a, b) => b.findingCount - a.findingCount,
     );
+
+    const currentKeys = new Set(
+      findings.map((row) => `${row.ruleId}|${row.pageUrl ?? ""}|${row.target ?? ""}`),
+    );
+    let newCount = 0;
+    let resolvedCount = 0;
+    let regressedCount = 0;
+    if (report.baselineScanRunId) {
+      for (const key of currentKeys) {
+        if (!baselineKeys.has(key)) newCount += 1;
+      }
+      for (const key of baselineKeys) {
+        if (!currentKeys.has(key)) resolvedCount += 1;
+      }
+      if (report.includeNewResolvedRegressed) {
+        for (const row of findings) {
+          if ((row.status ?? "open") === "regressed") regressedCount += 1;
+        }
+      }
+    }
 
     return {
       reportId: report._id,
@@ -533,6 +639,11 @@ export const getMyReportPreviewData = query({
         title: asset.title ?? asset.filename ?? asset.sourceUrl ?? String(asset._id),
         source: asset.sourceUrl ?? asset.normalizedUrl ?? asset.filename ?? undefined,
       },
+      branding: {
+        logoStorageId: report.logoStorageId,
+        companyName: report.companyName,
+        footerText: report.footerText,
+      },
       availableRuns: ownedRuns.map((run) => ({
         scanRunId: run._id,
         createdAt: run.createdAt,
@@ -542,6 +653,13 @@ export const getMyReportPreviewData = query({
         scanRunIds: selectedRunIds,
         severities: report.selectedSeverities ?? [],
         sources: report.selectedSources ?? [],
+      },
+      delta: {
+        baselineScanRunId: report.baselineScanRunId,
+        includeNewResolvedRegressed: report.includeNewResolvedRegressed ?? false,
+        newCount,
+        resolvedCount,
+        regressedCount,
       },
       summary,
       findings,

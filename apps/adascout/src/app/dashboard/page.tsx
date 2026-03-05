@@ -3,7 +3,7 @@ export default function Page() {
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-10 sm:px-6 lg:px-8">
       <header>
         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-          ADA Scount
+          ADA Scout
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Compliance operations dashboard</h1>
         <p className="mt-3 text-sm text-muted-foreground">

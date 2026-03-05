@@ -39,6 +39,14 @@ export const findingSourceValidator = v.union(
   v.literal("stagehand"),
 );
 
+export const findingStatusValidator = v.union(
+  v.literal("open"),
+  v.literal("in_progress"),
+  v.literal("resolved"),
+  v.literal("verified_on_rescan"),
+  v.literal("regressed"),
+);
+
 export const wcagProfileValidator = v.union(v.literal("wcag_2_2_aa"));
 export const reportLayoutValidator = v.union(v.literal("compact"), v.literal("expanded"));
 

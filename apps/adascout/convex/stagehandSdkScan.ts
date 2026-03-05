@@ -11,6 +11,7 @@ export interface StagehandSdkFinding {
   description?: string;
   selector?: string;
   helpUrl?: string;
+  evidenceHash?: string;
 }
 
 const findingSchema = z.object({
@@ -53,7 +54,7 @@ export const runStagehandSdkAccessibilityScan = async (args: {
 
   try {
     await stagehand.init();
-    const page = stagehand.context.pages()[0];
+    const page = stagehand.context.pages().at(0);
     if (!page) {
       throw new Error("Stagehand SDK did not initialize a browser page");
     }
@@ -72,6 +73,7 @@ export const runStagehandSdkAccessibilityScan = async (args: {
       description: item.description,
       selector: item.selector,
       helpUrl: item.helpUrl,
+      evidenceHash: `${item.ruleId}|${item.selector ?? ""}|${item.description ?? ""}`.toLowerCase(),
     }));
   } finally {
     await stagehand.close().catch(() => undefined);

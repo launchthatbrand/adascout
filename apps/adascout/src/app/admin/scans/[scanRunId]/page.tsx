@@ -26,6 +26,10 @@ type PageRow = Record<string, unknown> & {
   findingCount?: number;
   updatedAt: number;
   errorMessage?: string;
+  retryCount?: number;
+  lastQueueWaitMs?: number;
+  lastExtractLatencyMs?: number;
+  terminalErrorCategory?: string;
 };
 
 export default function ScanDetailsPage() {
@@ -51,6 +55,9 @@ export default function ScanDetailsPage() {
     scanRunId ? { scanRunId, limit: 2000 } : "skip",
   );
   const rerunScan = useMutation(api.scans.rerunScan);
+  const updateFindingStatus = useMutation(api.findings.updateMyFindingStatus);
+  const assignFinding = useMutation(api.findings.assignMyFinding);
+  const actor = useQuery(api.findings.getMyFindingActor, {});
   const cancelScanRun = useMutation(api.scans.cancelMyScanRun);
   const deleteScanRun = useMutation(api.scans.deleteMyScanRun);
   const rerunSelectedPages = useMutation(api.scans.rerunSelectedPages);
@@ -84,6 +91,10 @@ export default function ScanDetailsPage() {
         findingCount: row.findingCount,
         updatedAt: row.updatedAt,
         errorMessage: row.errorMessage,
+        retryCount: row.retryCount,
+        lastQueueWaitMs: row.lastQueueWaitMs,
+        lastExtractLatencyMs: row.lastExtractLatencyMs,
+        terminalErrorCategory: row.terminalErrorCategory,
       })),
     [pageRuns],
   );
@@ -147,12 +158,31 @@ export default function ScanDetailsPage() {
         ),
       },
       {
+        id: "retryCount",
+        header: "Retries",
+        accessorKey: "retryCount",
+        cell: (row: PageRow) => row.retryCount ?? 0,
+      },
+      {
+        id: "timings",
+        header: "Timings",
+        accessorKey: "lastExtractLatencyMs",
+        cell: (row: PageRow) => (
+          <span className="text-xs">
+            q:{row.lastQueueWaitMs ?? 0}ms · ex:{row.lastExtractLatencyMs ?? 0}ms
+          </span>
+        ),
+      },
+      {
         id: "error",
         header: "Error",
         accessorKey: "errorMessage",
         cell: (row: PageRow) =>
           row.errorMessage ? (
-            <span className="text-destructive text-xs">{row.errorMessage}</span>
+            <span className="text-destructive text-xs">
+              {row.terminalErrorCategory ? `[${row.terminalErrorCategory}] ` : ""}
+              {row.errorMessage}
+            </span>
           ) : (
             <span className="text-muted-foreground text-xs">—</span>
           ),
@@ -302,16 +332,31 @@ export default function ScanDetailsPage() {
                 variant="outline"
                 onClick={async () => {
                   try {
-                    const queuedCount = await rerunSelectedPages({ scanRunId, onlyFailed: true });
-                    setStatusMessage(`Queued ${queuedCount} failed page rerun(s).`);
+                    const queuedCount = await rerunSelectedPages({ scanRunId });
+                    setStatusMessage(`Queued ${queuedCount} lifecycle-eligible page rerun(s).`);
                   } catch (error) {
                     setStatusMessage(
-                      error instanceof Error ? error.message : "Failed to rerun failed pages.",
+                      error instanceof Error ? error.message : "Failed to rerun lifecycle-eligible pages.",
                     );
                   }
                 }}
               >
-                Rerun Failed
+                Rerun Eligible
+              </Button>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const queuedCount = await rerunSelectedPages({ scanRunId, includeAllPages: true });
+                    setStatusMessage(`Queued ${queuedCount} page rerun(s) with full override.`);
+                  } catch (error) {
+                    setStatusMessage(
+                      error instanceof Error ? error.message : "Failed to rerun all pages.",
+                    );
+                  }
+                }}
+              >
+                Full Rerun
               </Button>
             </div>
           }
@@ -375,11 +420,40 @@ export default function ScanDetailsPage() {
                     {finding.severity}
                   </Badge>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{finding.status ?? "open"}</Badge>
+                  {finding.evidenceHash ? (
+                    <span className="text-muted-foreground text-xs">evidence: {finding.evidenceHash.slice(0, 18)}…</span>
+                  ) : null}
+                </div>
                 <p className="text-muted-foreground text-sm">
                   Rule: {finding.ruleId}
                   {finding.target ? ` · Target: ${finding.target}` : ""}
                 </p>
                 {finding.description ? <p className="text-sm">{finding.description}</p> : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: finding._id, status: "in_progress" })}>
+                    In Progress
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: finding._id, status: "resolved" })}>
+                    Resolve
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: finding._id, status: "verified_on_rescan" })}>
+                    Verify
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: finding._id, status: "regressed" })}>
+                    Regressed
+                  </Button>
+                  {actor?.userId ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void assignFinding({ findingId: finding._id, assignee: actor.userId })}
+                    >
+                      Assign Me
+                    </Button>
+                  ) : null}
+                </div>
                 {finding.helpUrl ? (
                   <a
                     href={finding.helpUrl}

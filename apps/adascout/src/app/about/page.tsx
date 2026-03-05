@@ -4,10 +4,10 @@ export default function AboutPage() {
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-12 sm:px-6 lg:px-8">
       <header className="space-y-3">
-        <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">About ADA Scount</p>
+        <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">About ADA Scout</p>
         <h1 className="text-3xl font-semibold tracking-tight">How the MVP works</h1>
         <p className="text-muted-foreground">
-          ADA Scount provides automated accessibility detection and remediation guidance for websites and PDF files.
+          ADA Scout provides automated accessibility detection and remediation guidance for websites and PDF files.
         </p>
       </header>
 

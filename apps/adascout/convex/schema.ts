@@ -5,6 +5,7 @@ import {
   assetKindValidator,
   assetStatusValidator,
   findingSeverityValidator,
+  findingStatusValidator,
   findingSourceValidator,
   scanRunModeValidator,
   scanRunPageStatusValidator,
@@ -88,6 +89,11 @@ export default defineSchema({
     failedAt: v.optional(v.number()),
     errorMessage: v.optional(v.string()),
     findingCount: v.optional(v.number()),
+    retryCount: v.optional(v.number()),
+    lastQueueWaitMs: v.optional(v.number()),
+    lastExtractLatencyMs: v.optional(v.number()),
+    lastErrorCategory: v.optional(v.string()),
+    terminalErrorCategory: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -129,11 +135,27 @@ export default defineSchema({
     codeSnippet: v.optional(v.string()),
     manualReviewRequired: v.optional(v.boolean()),
     confidence: v.optional(v.number()),
+    status: v.optional(findingStatusValidator),
+    resolvedAt: v.optional(v.number()),
+    verifiedAt: v.optional(v.number()),
+    assignee: v.optional(v.id("users")),
+    dueAt: v.optional(v.number()),
+    resolutionNotes: v.optional(v.string()),
+    lastStateChangeAt: v.optional(v.number()),
+    evidenceHash: v.optional(v.string()),
+    domSnippet: v.optional(v.string()),
+    selectorSnapshot: v.optional(v.string()),
+    pageTitle: v.optional(v.string()),
+    capturedAt: v.optional(v.number()),
+    screenshotStorageId: v.optional(v.id("_storage")),
     createdAt: v.number(),
   })
     .index("by_scanRun_createdAt", ["scanRunId", "createdAt"])
     .index("by_scanRunPage_createdAt", ["scanRunPageId", "createdAt"])
-    .index("by_asset_severity", ["assetId", "severity"]),
+    .index("by_asset_severity", ["assetId", "severity"])
+    .index("by_asset_status", ["assetId", "status"])
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_assignee_status", ["assignee", "status"]),
 
   reports: defineTable({
     assetId: v.id("assets"),
@@ -144,6 +166,12 @@ export default defineSchema({
     selectedScanRunIds: v.optional(v.array(v.id("scanRuns"))),
     selectedSeverities: v.optional(v.array(findingSeverityValidator)),
     selectedSources: v.optional(v.array(findingSourceValidator)),
+    logoStorageId: v.optional(v.id("_storage")),
+    companyName: v.optional(v.string()),
+    footerText: v.optional(v.string()),
+    baselineScanRunId: v.optional(v.id("scanRuns")),
+    includeNewResolvedRegressed: v.optional(v.boolean()),
+    filterSnapshotJson: v.optional(v.string()),
     formatVersion: v.number(),
     generatedBy: v.id("users"),
     generatedAt: v.number(),

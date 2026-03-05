@@ -34,6 +34,14 @@ const getIntEnv = (name: string, fallback: number): number => {
   return parsed;
 };
 
+const getStringEnv = (name: string, fallback: string): string => {
+  const envValue = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[
+    name
+  ];
+  if (!envValue) return fallback;
+  return envValue;
+};
+
 export const runWebsiteScanWorkflow = workflowRunner.define({
   args: {
     scanRunId: v.id("scanRuns"),
@@ -42,9 +50,10 @@ export const runWebsiteScanWorkflow = workflowRunner.define({
   returns: v.null(),
   handler: async (step: unknown, args: { scanRunId: string; pageRunIds?: string[] }) => {
     const runner = step as WorkflowStepRunner;
+    const planTier = getStringEnv("SCANNER_PLAN_TIER", "free").toLowerCase() === "paid" ? "paid" : "free";
     const maxConcurrentSessions = Math.max(
       1,
-      Math.min(100, getIntEnv("SCANNER_MAX_CONCURRENT_SESSIONS", 1) || 1),
+      Math.min(100, planTier === "free" ? 1 : (getIntEnv("SCANNER_MAX_CONCURRENT_SESSIONS", 1) || 1)),
     );
     const pagesPerSession = Math.max(
       1,
@@ -75,6 +84,8 @@ export const runWebsiteScanWorkflow = workflowRunner.define({
       return null;
     }
 
+    let stalledPasses = 0;
+    const maxStalledPasses = Math.max(2, getIntEnv("SCANNER_MAX_STALLED_PASSES", 4));
     while (true) {
       const canceled = (await runner.runMutation(internal.scans.isScanRunCanceledForWorkflow, {
         scanRunId: args.scanRunId,
@@ -100,6 +111,15 @@ export const runWebsiteScanWorkflow = workflowRunner.define({
       }[];
       const processedInPass = results.reduce((sum, item) => sum + item.processedPages, 0);
       const claimedInPass = results.reduce((sum, item) => sum + item.claimedPages, 0);
+      const leaseAcquiredCount = results.filter((item) => item.leaseAcquired).length;
+      if (leaseAcquiredCount === 0) {
+        stalledPasses += 1;
+      } else if (processedInPass > 0 || claimedInPass > 0) {
+        stalledPasses = 0;
+      }
+      if (stalledPasses >= maxStalledPasses) {
+        break;
+      }
       if (processedInPass === 0 && claimedInPass === 0) {
         break;
       }

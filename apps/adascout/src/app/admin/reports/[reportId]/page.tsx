@@ -23,16 +23,33 @@ interface ReportDoc {
   moderateCount: number;
   minorCount: number;
   manualReviewRequiredCount: number;
+  logoStorageId?: Id<"_storage">;
+  companyName?: string;
+  footerText?: string;
+  baselineScanRunId?: Id<"scanRuns">;
+  includeNewResolvedRegressed?: boolean;
 }
 
 interface ReportPreview {
   profile: string;
   generatedAt: number;
   asset: { title: string; source?: string };
+  branding: {
+    logoStorageId?: Id<"_storage">;
+    companyName?: string;
+    footerText?: string;
+  };
   selected: {
     scanRunIds: Id<"scanRuns">[];
     severities: string[];
     sources: string[];
+  };
+  delta: {
+    baselineScanRunId?: Id<"scanRuns">;
+    includeNewResolvedRegressed: boolean;
+    newCount: number;
+    resolvedCount: number;
+    regressedCount: number;
   };
   summary: {
     total: number;
@@ -104,6 +121,10 @@ export default function ReportDetailsPage() {
   const [selectedScanRunIds, setSelectedScanRunIds] = useState<string[]>([]);
   const [selectedSeverities, setSelectedSeverities] = useState<string[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [companyName, setCompanyName] = useState("");
+  const [footerText, setFooterText] = useState("");
+  const [baselineScanRunId, setBaselineScanRunId] = useState<string>("");
+  const [includeDelta, setIncludeDelta] = useState(false);
 
   useEffect(() => {
     if (!report || !preview) return;
@@ -112,6 +133,10 @@ export default function ReportDetailsPage() {
     setSelectedScanRunIds(preview.selected.scanRunIds.map((id) => String(id)));
     setSelectedSeverities(preview.selected.severities);
     setSelectedSources(preview.selected.sources);
+    setCompanyName(report.companyName ?? preview.branding.companyName ?? "");
+    setFooterText(report.footerText ?? preview.branding.footerText ?? "");
+    setBaselineScanRunId(report.baselineScanRunId ? String(report.baselineScanRunId) : "");
+    setIncludeDelta(report.includeNewResolvedRegressed ?? false);
   }, [preview, report]);
 
   const scanRunOptions = useMemo(
@@ -187,6 +212,10 @@ export default function ReportDetailsPage() {
           selectedSources.length > 0
             ? (selectedSources as ("axe" | "ibm" | "pdf" | "stagehand")[])
             : undefined,
+        companyName: companyName || undefined,
+        footerText: footerText || undefined,
+        baselineScanRunId: baselineScanRunId ? (baselineScanRunId as Id<"scanRuns">) : undefined,
+        includeNewResolvedRegressed: includeDelta,
       });
       setStatusMessage("Report saved.");
     } catch (error) {
@@ -280,6 +309,13 @@ export default function ReportDetailsPage() {
             value={preview?.summary.manualReviewRequired ?? report.manualReviewRequiredCount}
           />
         </div>
+        {preview?.delta.includeNewResolvedRegressed ? (
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <Metric label="New" value={preview.delta.newCount} />
+            <Metric label="Resolved" value={preview.delta.resolvedCount} />
+            <Metric label="Regressed" value={preview.delta.regressedCount} />
+          </div>
+        ) : null}
         <div className="mt-4 flex gap-2">
           <Button onClick={() => void handleSave()} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save Report"}
@@ -320,6 +356,24 @@ export default function ReportDetailsPage() {
               </select>
             </div>
             <div className="space-y-2">
+              <Label htmlFor="report-company-name">Company name</Label>
+              <Input
+                id="report-company-name"
+                value={companyName}
+                onChange={(event) => setCompanyName(event.target.value)}
+                placeholder="Acme Compliance LLC"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="report-footer-text">Footer text</Label>
+              <Input
+                id="report-footer-text"
+                value={footerText}
+                onChange={(event) => setFooterText(event.target.value)}
+                placeholder="Confidential - Internal Use Only"
+              />
+            </div>
+            <div className="space-y-2">
               <p className="text-sm font-medium">Scan runs</p>
               <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border border-border/60 p-2">
                 {scanRunOptions.map((run: ScanRunOption) => (
@@ -336,6 +390,30 @@ export default function ReportDetailsPage() {
                   </label>
                 ))}
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="report-baseline-run">Baseline run (delta mode)</Label>
+              <select
+                id="report-baseline-run"
+                value={baselineScanRunId}
+                onChange={(event) => setBaselineScanRunId(event.target.value)}
+                className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+              >
+                <option value="">No baseline</option>
+                {scanRunOptions.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    {run.id.slice(0, 10)}... · {new Date(run.createdAt).toLocaleString()}
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={includeDelta}
+                  onChange={(event) => setIncludeDelta(event.target.checked)}
+                />
+                Include New/Resolved/Regressed sections in PDF
+              </label>
             </div>
             <div className="space-y-2">
               <p className="text-sm font-medium">Severity filter</p>
@@ -380,6 +458,8 @@ export default function ReportDetailsPage() {
               preview={preview}
               layout={layout}
               name={name}
+              companyName={companyName}
+              footerText={footerText}
             />
           </div>
         </div>
@@ -391,6 +471,8 @@ export default function ReportDetailsPage() {
           preview={preview}
           layout={layout}
           name={name}
+          companyName={companyName}
+          footerText={footerText}
         />
       </section>
       <style jsx global>{`
@@ -419,11 +501,15 @@ const ReportPdfPreview = ({
   preview,
   layout,
   name,
+  companyName,
+  footerText,
 }: {
   report: { name?: string };
   preview: ReportPreview | undefined;
   layout: "compact" | "expanded";
   name: string;
+  companyName: string;
+  footerText: string;
 }) => {
   if (!preview) {
     return (
@@ -443,6 +529,9 @@ const ReportPdfPreview = ({
           <h1 className="text-2xl font-semibold">
             {name.trim() !== "" ? name.trim() : (report.name ?? "ADA Scout Report")}
           </h1>
+          {companyName.trim() !== "" ? (
+            <p className="text-sm opacity-80">{companyName.trim()}</p>
+          ) : null}
           <p className="text-sm opacity-80">{preview.asset.title}</p>
           {preview.asset.source ? <p className="text-xs opacity-70">{preview.asset.source}</p> : null}
         </div>
@@ -461,6 +550,14 @@ const ReportPdfPreview = ({
         <PreviewMetric label="Minor" value={preview.summary.minor} />
         <PreviewMetric label="Manual" value={preview.summary.manualReviewRequired} />
       </section>
+
+      {preview.delta.includeNewResolvedRegressed ? (
+        <section className="grid grid-cols-3 gap-2">
+          <PreviewMetric label="New" value={preview.delta.newCount} />
+          <PreviewMetric label="Resolved" value={preview.delta.resolvedCount} />
+          <PreviewMetric label="Regressed" value={preview.delta.regressedCount} />
+        </section>
+      ) : null}
 
       {layout === "compact" ? (
         <section className="space-y-2">
@@ -508,6 +605,9 @@ const ReportPdfPreview = ({
           {preview.groupedByPage.length === 0 ? <p className="text-sm opacity-70">No findings match your filters.</p> : null}
         </section>
       )}
+      {footerText.trim() !== "" ? (
+        <footer className="border-t border-black/10 pt-3 text-xs opacity-70">{footerText.trim()}</footer>
+      ) : null}
     </article>
   );
 };
