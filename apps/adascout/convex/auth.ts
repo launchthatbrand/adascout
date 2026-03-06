@@ -1,18 +1,13 @@
-import { convexAuth } from "@convex-dev/auth/server";
-import { Password } from "@convex-dev/auth/providers/Password";
-import type { DataModel } from "./_generated/dataModel";
+import {
+  auth as pluginAuth,
+  signIn as pluginSignIn,
+  signOut as pluginSignOut,
+  store as pluginStore,
+  isAuthenticated as pluginIsAuthenticated,
+} from "launchthat-plugin-auth/convex/component/auth";
 
-const PasswordProvider = Password<DataModel>({
-  profile(params) {
-    const email = typeof params.email === "string" ? params.email : "";
-    const name = typeof params.name === "string" ? params.name : undefined;
-    return {
-      email,
-      name: name?.trim() ? name.trim() : undefined,
-    };
-  },
-});
-
-export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [PasswordProvider],
-});
+export const auth = pluginAuth;
+export const signIn = pluginSignIn;
+export const signOut = pluginSignOut;
+export const store = pluginStore;
+export const isAuthenticated = pluginIsAuthenticated;

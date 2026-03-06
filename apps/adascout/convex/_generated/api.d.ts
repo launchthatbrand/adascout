@@ -16,6 +16,7 @@ import type * as http from "../http.js";
 import type * as httpActions from "../httpActions.js";
 import type * as migrations from "../migrations.js";
 import type * as playwrightSmoke from "../playwrightSmoke.js";
+import type * as pluginAuth from "../pluginAuth.js";
 import type * as remediation from "../remediation.js";
 import type * as reports from "../reports.js";
 import type * as scanRunner from "../scanRunner.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   httpActions: typeof httpActions;
   migrations: typeof migrations;
   playwrightSmoke: typeof playwrightSmoke;
+  pluginAuth: typeof pluginAuth;
   remediation: typeof remediation;
   reports: typeof reports;
   scanRunner: typeof scanRunner;
@@ -470,6 +472,136 @@ export declare const components: {
           splitCursor?: string | null;
         }
       >;
+    };
+  };
+  launchthat_auth: {
+    auth: {
+      isAuthenticated: FunctionReference<"query", "internal", {}, any>;
+      signIn: FunctionReference<
+        "action",
+        "internal",
+        {
+          calledBy?: string;
+          params?: any;
+          provider?: string;
+          refreshToken?: string;
+          verifier?: string;
+        },
+        any
+      >;
+      signOut: FunctionReference<"action", "internal", {}, any>;
+    };
+    index: {
+      isAuthenticated: FunctionReference<"query", "internal", {}, any>;
+      signIn: FunctionReference<
+        "action",
+        "internal",
+        {
+          calledBy?: string;
+          params?: any;
+          provider?: string;
+          refreshToken?: string;
+          verifier?: string;
+        },
+        any
+      >;
+      signOut: FunctionReference<"action", "internal", {}, any>;
+    };
+    oauth: {
+      actions: {
+        bootstrapProviders: FunctionReference<
+          "action",
+          "internal",
+          {},
+          { ok: boolean }
+        >;
+      };
+      mutations: {
+        backfillIdentityLinksFromUsers: FunctionReference<
+          "mutation",
+          "internal",
+          { limit?: number },
+          { created: number; scanned: number; updated: number }
+        >;
+        ensurePrimaryIdentityLinkForUser: FunctionReference<
+          "mutation",
+          "internal",
+          { userId: string },
+          { created: boolean; providerKey: string; providerUserId: string }
+        >;
+        purgeExpiredOauthStates: FunctionReference<
+          "mutation",
+          "internal",
+          { limit?: number },
+          { removed: number; scanned: number }
+        >;
+        seedDefaultProviderConfigs: FunctionReference<
+          "mutation",
+          "internal",
+          {},
+          { inserted: number; updated: number }
+        >;
+        upsertProviderConfig: FunctionReference<
+          "mutation",
+          "internal",
+          {
+            authorizationUrl?: string;
+            displayName: string;
+            enabled: boolean;
+            issuer?: string;
+            metadata?: any;
+            providerKey: string;
+            providerType:
+              | "password"
+              | "magic_link"
+              | "github"
+              | "oidc"
+              | "web3";
+            scopes?: Array<string>;
+            tokenUrl?: string;
+            userInfoUrl?: string;
+          },
+          { providerKey: string }
+        >;
+      };
+      queries: {
+        getPrimaryIdentityForUser: FunctionReference<
+          "query",
+          "internal",
+          { userId: string },
+          null | {
+            displayName?: string;
+            email?: string;
+            linkedAt: number;
+            providerKey: string;
+            providerUserId: string;
+          }
+        >;
+        listProviderConfigs: FunctionReference<
+          "query",
+          "internal",
+          { enabledOnly?: boolean },
+          Array<{
+            authorizationUrl?: string;
+            createdAt: number;
+            displayName: string;
+            enabled: boolean;
+            issuer?: string;
+            metadata?: any;
+            providerKey: string;
+            providerType:
+              | "password"
+              | "magic_link"
+              | "github"
+              | "oidc"
+              | "web3";
+            scopes?: Array<string>;
+            tokenUrl?: string;
+            updatedAt: number;
+            userInfoUrl?: string;
+          }>
+        >;
+      };
     };
   };
   stagehand: {
