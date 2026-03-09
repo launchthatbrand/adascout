@@ -356,7 +356,7 @@ export function EntityListView<T extends Record<string, unknown>>({
       : 0;
 
     return (
-      <div className="w-full bg-background">
+      <div className="w-full">
         {enableRowSelection && selectedItems.length > 0 && bulkActions ? (
           <div className="bg-muted/40 border-input mb-3 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
             {bulkActions({
