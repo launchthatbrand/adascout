@@ -181,11 +181,11 @@ export function EntityListView<T extends Record<string, unknown>>({
     if (entityActions && entityActions.length > 0) {
       cols.push({
         id: "actions",
-        header: () => <div className="text-right">Actions</div>,
+        header: () => <div className="pr-8 text-right">Actions</div>,
         enableHiding: false,
         enableSorting: false,
         cell: ({ row }) => (
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center justify-end gap-2 pr-8">
             {entityActions.map((action, index) => (
               <button
                 key={index}
@@ -367,7 +367,7 @@ export function EntityListView<T extends Record<string, unknown>>({
         ) : null}
         <div
           ref={virtualScrollRef}
-          className="max-h-[70vh] overflow-auto rounded-md border"
+          className="max-h-[70vh] overflow-auto overscroll-x-contain overscroll-y-contain rounded-md border"
           onScroll={(event) => {
             if (!useVirtualRows) return;
             setVirtualScrollTop(event.currentTarget.scrollTop);
@@ -383,9 +383,8 @@ export function EntityListView<T extends Record<string, unknown>>({
                     return (
                       <TableHead
                         key={header.id}
-                        className={`bg-background supports-backdrop-filter:bg-background/95 border-border/40 sticky top-0 z-20 shadow-[0_2px_6px_-6px_rgba(0,0,0,0.25)] ${
-                          isLastHeader ? "" : "border-r"
-                        }`}
+                        className={`bg-background supports-backdrop-filter:bg-background/95 border-border/40 sticky top-0 z-20 shadow-[0_2px_6px_-6px_rgba(0,0,0,0.25)] ${isLastHeader ? "" : "border-r"
+                          }`}
                       >
                         {header.isPlaceholder
                           ? null
@@ -421,17 +420,17 @@ export function EntityListView<T extends Record<string, unknown>>({
                         const isLastCell =
                           cellIndex === row.getVisibleCells().length - 1;
                         return (
-                        <TableCell
-                          key={cell.id}
-                          className={`border-border/30 ${isLastCell ? "" : "border-r"}`}
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </TableCell>
-                      );
-                    })}
+                          <TableCell
+                            key={cell.id}
+                            className={`border-border/30 ${isLastCell ? "" : "border-r"}`}
+                          >
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            )}
+                          </TableCell>
+                        );
+                      })}
                     </TableRow>
                   ))}
                   {useVirtualRows && bottomSpacerHeight > 0 ? (
