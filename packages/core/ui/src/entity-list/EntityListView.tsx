@@ -373,13 +373,20 @@ export function EntityListView<T extends Record<string, unknown>>({
             setVirtualScrollTop(event.currentTarget.scrollTop);
           }}
         >
-          <Table className="min-w-max">
-            <TableHeader>
+          <Table className="min-w-max" containerClassName="overflow-visible">
+            <TableHeader className="bg-background">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => {
+                  {headerGroup.headers.map((header, headerIndex) => {
+                    const isLastHeader =
+                      headerIndex === headerGroup.headers.length - 1;
                     return (
-                      <TableHead key={header.id}>
+                      <TableHead
+                        key={header.id}
+                        className={`bg-background supports-backdrop-filter:bg-background/95 border-border/40 sticky top-0 z-20 shadow-[0_2px_6px_-6px_rgba(0,0,0,0.25)] ${
+                          isLastHeader ? "" : "border-r"
+                        }`}
+                      >
                         {header.isPlaceholder
                           ? null
                           : flexRender(
@@ -410,14 +417,21 @@ export function EntityListView<T extends Record<string, unknown>>({
                       className={onRowClick ? "cursor-pointer" : ""}
                       onClick={() => onRowClick?.(row.original)}
                     >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
+                      {row.getVisibleCells().map((cell, cellIndex) => {
+                        const isLastCell =
+                          cellIndex === row.getVisibleCells().length - 1;
+                        return (
+                        <TableCell
+                          key={cell.id}
+                          className={`border-border/30 ${isLastCell ? "" : "border-r"}`}
+                        >
                           {flexRender(
                             cell.column.columnDef.cell,
                             cell.getContext(),
                           )}
                         </TableCell>
-                      ))}
+                      );
+                    })}
                     </TableRow>
                   ))}
                   {useVirtualRows && bottomSpacerHeight > 0 ? (
