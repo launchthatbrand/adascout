@@ -1,0 +1,133 @@
+---
+title: "PDF Accessibility: The Complete Checklist"
+description: "PDFs are a common accessibility trap. Learn how to ensure your documents are accessible to all users."
+slug: "pdf-accessibility-checklist"
+publishedAt: "2026-03-12"
+author: "ADA Scout Team"
+tags: ["pdf", "accessibility", "compliance", "documents"]
+product: "ada-scout"
+status: "published"
+---
+
+PDFs are everywhere—reports, forms, whitepapers, and more. But for users with disabilities, inaccessible PDFs can be completely unusable. Here's how to make your PDFs accessible.
+
+## Why PDF Accessibility Matters
+
+- **Legal risk**: PDFs are covered under ADA requirements
+- **User exclusion**: 1 in 5 users has difficulty with inaccessible documents
+- **Searchability**: Accessible PDFs are easier to index and search
+
+<Callout title="Key Insight" type="info">
+  A "tagged" PDF with proper structure can be read by screen readers, while an
+  untagged PDF is essentially an image to assistive technology.
+</Callout>
+
+## The PDF Accessibility Checklist
+
+### 1. Document Structure
+
+<Checklist
+  title="Structural Elements"
+  items={[
+    "Use proper heading hierarchy (H1, H2, H3...)",
+    "Add bookmarks/navigation panel",
+    "Mark reading order correctly",
+    "Include a table of contents for long documents",
+    "Use logical reading sequence",
+  ]}
+/>
+
+### 2. Text and Content
+
+- **Real text, not images**: Scan documents and use OCR
+- **Embedded fonts**: Don't rely on system fonts
+- **Sufficient contrast**: Text stands out from background
+
+### 3. Images and Graphics
+
+- **Alt text**: Describe all meaningful images
+- **Complex images**: Provide long descriptions
+- **Decorative images**: Mark as artifacts
+
+### 4. Tables
+
+- Use proper table structure (rows, headers)
+- Specify header cells correctly
+- Avoid merged cells when possible
+- Include summary descriptions for complex tables
+
+### 5. Links
+
+- Descriptive link text (avoid "click here")
+- Links should make sense out of context
+- Verify all links work
+
+### 6. Forms
+
+- Label all form fields
+- Provide clear instructions
+- Mark required fields
+- Include error identification
+
+### 7. Color
+
+- Don't rely on color alone
+- Provide sufficient contrast
+- Consider colorblind users
+
+## How to Create Accessible PDFs
+
+### From Microsoft Word
+
+1. Use Styles (Heading 1, Heading 2, etc.)
+2. Add alt text to images
+3. Use tables properly
+4. Enable "Check Accessibility" in Word
+5. Save as PDF using "Best for accessibility"
+
+### From Adobe Acrobat Pro
+
+1. Run "Make Accessible" action
+2. Add/fix tags
+3. Set reading order
+4. Add alt text
+5. Run accessibility checker
+
+### From Other Tools
+
+- **Google Docs**: Download as PDF, but review tags
+- **InDesign**: Use article structure and export settings
+
+## Testing Your PDFs
+
+### Automated Testing
+
+ADA Scout can scan your PDFs for:
+
+- Missing tags
+- Missing alt text
+- Scan quality issues
+- Reading order problems
+
+### Manual Testing
+
+1. Open in Adobe Acrobat Reader
+2. Try to navigate with keyboard only
+3. Use screen reader (NVDA, VoiceOver)
+4. Check reading order in tags panel
+
+## Common PDF Issues and Fixes
+
+| Issue                  | Solution                         |
+| ---------------------- | -------------------------------- |
+| Scanned document       | Run OCR to extract text          |
+| Missing tags           | Use "Make Accessible" in Acrobat |
+| No alt text            | Add via TouchUp Reading Order    |
+| Poor contrast          | Adjust colors in source          |
+| Tables without headers | Add table structure in Acrobat   |
+
+<InlineCta label="Scan Your PDFs Now" href="/admin/assets" />
+
+## The Bottom Line
+
+Accessible PDFs require upfront effort but save time and reduce legal risk long-term. Use this checklist to ensure your documents work for everyone—and let ADA Scout help identify issues automatically.

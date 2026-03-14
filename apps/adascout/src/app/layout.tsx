@@ -1,18 +1,21 @@
 import "./styles.css";
 
 import type { Metadata } from "next";
+import { Geist } from "next/font/google";
+import { headers } from "next/headers";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
+
+import { cn } from "@acme/ui";
 import StandardLayout from "@acme/ui/layout/StandardLayout";
 import { ThemeProvider } from "@acme/ui/theme";
 import { Toaster } from "@acme/ui/toast";
-import { Geist } from "next/font/google";
-import { headers } from "next/headers";
-import { cn } from "@acme/ui";
+
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "ADA Scout",
-  description: "ADA Scout scans websites and PDF files for WCAG 2.2 AA issues and remediation guidance.",
+  description:
+    "ADA Scout scans websites and PDF files for WCAG 2.2 AA issues and remediation guidance.",
   icons: [
     {
       rel: "icon",
@@ -47,8 +50,12 @@ export default async function RootLayout({
   const headerList = await headers();
   const pathnameHeader = headerList.get("x-pathname");
   const pathname =
-    typeof pathnameHeader === "string" && pathnameHeader.length > 0 ? pathnameHeader : "/";
-  const hasPathnameHeader = Boolean(pathnameHeader && pathnameHeader.length > 0);
+    typeof pathnameHeader === "string" && pathnameHeader.length > 0
+      ? pathnameHeader
+      : "/";
+  const hasPathnameHeader = Boolean(
+    pathnameHeader && pathnameHeader.length > 0,
+  );
 
   const segments = pathname
     .replace(/^\/+/, "")
@@ -63,7 +70,7 @@ export default async function RootLayout({
   let showHeader = fallbackShowHeader;
   let showSidebar = fallbackShowSidebar;
   if (hasPathnameHeader) {
-    showHeader = true;
+    showHeader = firstSegment !== "admin";
     showSidebar = firstSegment === "admin";
     if (firstSegment === "sign-in" || firstSegment === "sign-up") {
       showHeader = false;
@@ -86,7 +93,7 @@ export default async function RootLayout({
                   showSidebar={showSidebar}
                   className={cn(
                     showSidebar
-                      ? "shadow-[-12px_0_10px_-3px_rgba(0,0,0,0.3)] max-h-screen rounded-3xl!"
+                      ? "max-h-screen rounded-3xl! shadow-[-12px_0_10px_-3px_rgba(0,0,0,0.3)]"
                       : "max-h-screen",
                   )}
                   sidebarDefaultOpen
