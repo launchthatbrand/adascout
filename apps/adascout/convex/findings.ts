@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+
 import { mutation, query } from "./_generated/server";
 import { requireUserId } from "./helpers";
 import {
@@ -62,11 +63,14 @@ export const listMyFindingsByScanRun = query({
     const limit = Math.max(1, Math.min(1000, Number(args.limit ?? 500)));
     const rows = await ctx.db
       .query("findings")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .order("desc")
       .take(limit);
     return rows.filter((row) => {
-      if (args.scanRunPageId && row.scanRunPageId !== args.scanRunPageId) return false;
+      if (args.scanRunPageId && row.scanRunPageId !== args.scanRunPageId)
+        return false;
       if (args.severity && row.severity !== args.severity) return false;
       if (args.source && row.source !== args.source) return false;
       return true;
@@ -132,8 +136,11 @@ export const updateMyFindingStatus = mutation({
       resolutionNotes: args.resolutionNotes ?? finding.resolutionNotes,
       lastStateChangeAt: now,
       resolvedAt:
-        args.status === "resolved" || args.status === "verified_on_rescan" ? now : finding.resolvedAt,
-      verifiedAt: args.status === "verified_on_rescan" ? now : finding.verifiedAt,
+        args.status === "resolved" || args.status === "verified_on_rescan"
+          ? now
+          : finding.resolvedAt,
+      verifiedAt:
+        args.status === "verified_on_rescan" ? now : finding.verifiedAt,
     });
     const updated = await ctx.db.get(args.findingId);
     if (!updated) {
@@ -197,7 +204,9 @@ export const bulkUpdateMyFindings = mutation({
         ...(args.status ? { status: args.status } : {}),
         ...(args.assignee !== undefined ? { assignee: args.assignee } : {}),
         ...(args.dueAt !== undefined ? { dueAt: args.dueAt } : {}),
-        ...(args.resolutionNotes !== undefined ? { resolutionNotes: args.resolutionNotes } : {}),
+        ...(args.resolutionNotes !== undefined
+          ? { resolutionNotes: args.resolutionNotes }
+          : {}),
         lastStateChangeAt: now,
         ...(args.status === "resolved" || args.status === "verified_on_rescan"
           ? { resolvedAt: now }
@@ -219,3 +228,21 @@ export const getMyFindingActor = query({
   },
 });
 
+export const getMyFinding = query({
+  args: {
+    findingId: v.id("findings"),
+  },
+  returns: v.nullable(findingRowValidator),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const finding = await ctx.db.get(args.findingId);
+    if (!finding) {
+      return null;
+    }
+    const asset = await ctx.db.get(finding.assetId);
+    if (!asset || asset.createdBy !== userId) {
+      return null;
+    }
+    return finding;
+  },
+});
