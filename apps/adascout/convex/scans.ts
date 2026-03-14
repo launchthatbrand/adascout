@@ -1,19 +1,25 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import type { MutationCtx } from "./_generated/server";
+
 import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import {
-  findingStatusValidator,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
+import { nowMs, requireUserId } from "./helpers";
+import {
   findingSeverityValidator,
   findingSourceValidator,
+  findingStatusValidator,
   scanRunModeValidator,
   scanRunPageStatusValidator,
   scanRunStatusValidator,
   scanSummaryValidator,
   wcagProfileValidator,
 } from "./scanTypes";
-import { nowMs, requireUserId } from "./helpers";
 import { workflow } from "./workflow";
 
 interface FindingSummaryRow {
@@ -72,15 +78,22 @@ const computeEvidenceHash = (args: {
     .join("|")
     .toLowerCase();
 
-const deleteScanRunCascade = async (ctx: MutationCtx, scanRunId: Id<"scanRuns">): Promise<void> => {
+const deleteScanRunCascade = async (
+  ctx: MutationCtx,
+  scanRunId: Id<"scanRuns">,
+): Promise<void> => {
   const scanRun = await ctx.db.get(scanRunId);
   if (scanRun?.workflowId) {
-    await ctx.runMutation(components.workflow.workflow.cancel, {
-      workflowId: scanRun.workflowId,
-    }).catch(() => null);
-    await ctx.runMutation(components.workflow.workflow.cleanup, {
-      workflowId: scanRun.workflowId,
-    }).catch(() => false);
+    await ctx
+      .runMutation(components.workflow.workflow.cancel, {
+        workflowId: scanRun.workflowId,
+      })
+      .catch(() => null);
+    await ctx
+      .runMutation(components.workflow.workflow.cleanup, {
+        workflowId: scanRun.workflowId,
+      })
+      .catch(() => false);
   }
 
   const pageRows = await ctx.db
@@ -90,7 +103,9 @@ const deleteScanRunCascade = async (ctx: MutationCtx, scanRunId: Id<"scanRuns">)
   for (const pageRow of pageRows) {
     const pageFindings = await ctx.db
       .query("findings")
-      .withIndex("by_scanRunPage_createdAt", (q) => q.eq("scanRunPageId", pageRow._id))
+      .withIndex("by_scanRunPage_createdAt", (q) =>
+        q.eq("scanRunPageId", pageRow._id),
+      )
       .collect();
     for (const finding of pageFindings) {
       await ctx.db.delete(finding._id);
@@ -179,7 +194,10 @@ export const createScanRun = mutation({
       .withIndex("by_asset_createdAt", (q) => q.eq("assetId", args.assetId))
       .order("desc")
       .first();
-    if (existing && (existing.status === "queued" || existing.status === "running")) {
+    if (
+      existing &&
+      (existing.status === "queued" || existing.status === "running")
+    ) {
       return existing._id;
     }
 
@@ -187,14 +205,20 @@ export const createScanRun = mutation({
       .query("scanRuns")
       .withIndex("by_createdBy_createdAt", (q) => q.eq("createdBy", userId))
       .collect();
-    const activeRuns = userRuns.filter((row) => row.status === "queued" || row.status === "running");
+    const activeRuns = userRuns.filter(
+      (row) => row.status === "queued" || row.status === "running",
+    );
     const dayAgo = nowMs() - 24 * 60 * 60 * 1000;
     const recentRuns = userRuns.filter((row) => row.createdAt >= dayAgo);
     if (activeRuns.length >= 3) {
-      throw new ConvexError("Too many active scans. Wait for running scans to finish.");
+      throw new ConvexError(
+        "Too many active scans. Wait for running scans to finish.",
+      );
     }
     if (recentRuns.length >= 100) {
-      throw new ConvexError("Daily scan quota reached for this MVP environment.");
+      throw new ConvexError(
+        "Daily scan quota reached for this MVP environment.",
+      );
     }
 
     const now = nowMs();
@@ -210,13 +234,19 @@ export const createScanRun = mutation({
       updatedAt: now,
     });
     if (mode === "website_pages") {
-      const workflowId = await workflowStarter.start(ctx, websiteScanWorkflowRef, { scanRunId });
+      const workflowId = await workflowStarter.start(
+        ctx,
+        websiteScanWorkflowRef,
+        { scanRunId },
+      );
       await ctx.db.patch(scanRunId, {
         workflowId,
         updatedAt: nowMs(),
       });
     } else {
-      await ctx.scheduler.runAfter(0, internal.scanRunner.processScanRun, { scanRunId });
+      await ctx.scheduler.runAfter(0, internal.scanRunner.processScanRun, {
+        scanRunId,
+      });
     }
     return scanRunId;
   },
@@ -248,13 +278,19 @@ export const rerunScan = mutation({
       updatedAt: now,
     });
     if (mode === "website_pages") {
-      const workflowId = await workflowStarter.start(ctx, websiteScanWorkflowRef, { scanRunId });
+      const workflowId = await workflowStarter.start(
+        ctx,
+        websiteScanWorkflowRef,
+        { scanRunId },
+      );
       await ctx.db.patch(scanRunId, {
         workflowId,
         updatedAt: nowMs(),
       });
     } else {
-      await ctx.scheduler.runAfter(0, internal.scanRunner.processScanRun, { scanRunId });
+      await ctx.scheduler.runAfter(0, internal.scanRunner.processScanRun, {
+        scanRunId,
+      });
     }
     return scanRunId;
   },
@@ -271,22 +307,32 @@ export const rerunSelectedPages = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
     const scanRun = await ctx.db.get(args.scanRunId);
-    if (!scanRun || scanRun.createdBy !== userId || scanRun.mode !== "website_pages") {
+    if (
+      !scanRun ||
+      scanRun.createdBy !== userId ||
+      scanRun.mode !== "website_pages"
+    ) {
       throw new ConvexError("Website scan run not found.");
     }
 
     const rows = await ctx.db
       .query("scanRunPages")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .collect();
 
     const allowedIds = new Set(rows.map((row) => row._id));
-    const requestedIds = (args.pageRunIds ?? []).filter((id) => allowedIds.has(id));
+    const requestedIds = (args.pageRunIds ?? []).filter((id) =>
+      allowedIds.has(id),
+    );
 
     const eligibleByLifecycle = new Set<Id<"scanRunPages">>();
     const allRunFindings = await ctx.db
       .query("findings")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .collect();
     for (const finding of allRunFindings) {
       if (!finding.scanRunPageId) continue;
@@ -316,10 +362,14 @@ export const rerunSelectedPages = mutation({
       pageRunIds: finalTargetIds,
     });
 
-    const workflowId = await workflowStarter.start(ctx, websiteScanWorkflowRef, {
-      scanRunId: scanRun._id,
-      pageRunIds: finalTargetIds,
-    });
+    const workflowId = await workflowStarter.start(
+      ctx,
+      websiteScanWorkflowRef,
+      {
+        scanRunId: scanRun._id,
+        pageRunIds: finalTargetIds,
+      },
+    );
     await ctx.db.patch(scanRun._id, {
       workflowId,
       updatedAt: nowMs(),
@@ -346,7 +396,9 @@ export const cancelMyScanRun = mutation({
 
     const pages = await ctx.db
       .query("scanRunPages")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .collect();
     const now = nowMs();
     let canceledPages = 0;
@@ -365,7 +417,9 @@ export const cancelMyScanRun = mutation({
 
     const leases = await ctx.db
       .query("scanSessionLeases")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .collect();
     for (const lease of leases) {
       await ctx.db.delete(lease._id);
@@ -379,12 +433,16 @@ export const cancelMyScanRun = mutation({
       lastProgressAt: now,
     });
     if (scanRun.workflowId) {
-      await ctx.runMutation(components.workflow.workflow.cancel, {
-        workflowId: scanRun.workflowId,
-      }).catch(() => null);
-      await ctx.runMutation(components.workflow.workflow.cleanup, {
-        workflowId: scanRun.workflowId,
-      }).catch(() => false);
+      await ctx
+        .runMutation(components.workflow.workflow.cancel, {
+          workflowId: scanRun.workflowId,
+        })
+        .catch(() => null);
+      await ctx
+        .runMutation(components.workflow.workflow.cleanup, {
+          workflowId: scanRun.workflowId,
+        })
+        .catch(() => false);
     }
 
     return { canceledPages };
@@ -456,7 +514,9 @@ export const listMyScanRuns = query({
       .withIndex("by_createdBy_createdAt", (q) => q.eq("createdBy", userId))
       .order("desc")
       .take(limit);
-    return args.assetId ? rows.filter((row) => row.assetId === args.assetId) : rows;
+    return args.assetId
+      ? rows.filter((row) => row.assetId === args.assetId)
+      : rows;
   },
 });
 
@@ -591,10 +651,142 @@ export const listMyScanRunPages = query({
     const limit = Math.max(1, Math.min(2000, Number(args.limit ?? 500)));
     const rows = await ctx.db
       .query("scanRunPages")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .order("asc")
       .take(limit);
-    return args.status ? rows.filter((row) => row.status === args.status) : rows;
+    return args.status
+      ? rows.filter((row) => row.status === args.status)
+      : rows;
+  },
+});
+
+export const listMyScanRunPagesByAsset = query({
+  args: {
+    assetId: v.id("assets"),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("scanRunPages"),
+      _creationTime: v.number(),
+      scanRunId: v.id("scanRuns"),
+      assetId: v.id("assets"),
+      createdBy: v.id("users"),
+      pageUrl: v.string(),
+      normalizedUrl: v.string(),
+      status: scanRunPageStatusValidator,
+      attempt: v.number(),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      failedAt: v.optional(v.number()),
+      errorMessage: v.optional(v.string()),
+      findingCount: v.optional(v.number()),
+      retryCount: v.optional(v.number()),
+      lastQueueWaitMs: v.optional(v.number()),
+      lastExtractLatencyMs: v.optional(v.number()),
+      lastErrorCategory: v.optional(v.string()),
+      terminalErrorCategory: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || asset.createdBy !== userId) {
+      return [];
+    }
+    const limit = Math.max(1, Math.min(2000, Number(args.limit ?? 1000)));
+
+    const scanRuns = await ctx.db
+      .query("scanRuns")
+      .withIndex("by_asset_createdAt", (q) => q.eq("assetId", args.assetId))
+      .order("desc")
+      .take(100);
+
+    type PageRow = {
+      _id: Id<"scanRunPages">;
+      _creationTime: number;
+      scanRunId: Id<"scanRuns">;
+      assetId: Id<"assets">;
+      createdBy: Id<"users">;
+      pageUrl: string;
+      normalizedUrl: string;
+      status: "queued" | "running" | "completed" | "failed" | "canceled";
+      attempt: number;
+      startedAt?: number;
+      completedAt?: number;
+      failedAt?: number;
+      errorMessage?: string;
+      findingCount?: number;
+      retryCount?: number;
+      lastQueueWaitMs?: number;
+      lastExtractLatencyMs?: number;
+      lastErrorCategory?: string;
+      terminalErrorCategory?: string;
+      createdAt: number;
+      updatedAt: number;
+    };
+
+    const allPages: PageRow[] = [];
+    for (const scanRun of scanRuns) {
+      const pages = await ctx.db
+        .query("scanRunPages")
+        .withIndex("by_scanRun_createdAt", (q) =>
+          q.eq("scanRunId", scanRun._id),
+        )
+        .order("asc")
+        .take(limit);
+      allPages.push(...(pages as PageRow[]));
+    }
+
+    return allPages.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
+  },
+});
+
+export const getMyScanRunPage = query({
+  args: {
+    pageId: v.id("scanRunPages"),
+  },
+  returns: v.union(
+    v.object({
+      _id: v.id("scanRunPages"),
+      _creationTime: v.number(),
+      scanRunId: v.id("scanRuns"),
+      assetId: v.id("assets"),
+      createdBy: v.id("users"),
+      pageUrl: v.string(),
+      normalizedUrl: v.string(),
+      status: scanRunPageStatusValidator,
+      attempt: v.number(),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      failedAt: v.optional(v.number()),
+      errorMessage: v.optional(v.string()),
+      findingCount: v.optional(v.number()),
+      retryCount: v.optional(v.number()),
+      lastQueueWaitMs: v.optional(v.number()),
+      lastExtractLatencyMs: v.optional(v.number()),
+      lastErrorCategory: v.optional(v.string()),
+      terminalErrorCategory: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const page = await ctx.db.get(args.pageId);
+    if (!page) {
+      return null;
+    }
+    const scanRun = await ctx.db.get(page.scanRunId);
+    if (!scanRun || scanRun.createdBy !== userId) {
+      return null;
+    }
+    return page;
   },
 });
 
@@ -604,7 +796,14 @@ const recomputeScanRunProgress = async (
 ) => {
   const scanRun = await ctx.db.get(scanRunId);
   if (!scanRun) {
-    return { totalPages: 0, queuedPages: 0, runningPages: 0, completedPages: 0, failedPages: 0, status: "failed" as const };
+    return {
+      totalPages: 0,
+      queuedPages: 0,
+      runningPages: 0,
+      completedPages: 0,
+      failedPages: 0,
+      status: "failed" as const,
+    };
   }
   if (scanRun.status === "canceled") {
     return {
@@ -646,7 +845,14 @@ const recomputeScanRunProgress = async (
     lastProgressAt: now,
     updatedAt: now,
   });
-  return { totalPages, queuedPages, runningPages, completedPages, failedPages, status };
+  return {
+    totalPages,
+    queuedPages,
+    runningPages,
+    completedPages,
+    failedPages,
+    status,
+  };
 };
 
 export const upsertScanRunPages = internalMutation({
@@ -663,7 +869,9 @@ export const upsertScanRunPages = internalMutation({
   handler: async (ctx, args) => {
     const existingRows = await ctx.db
       .query("scanRunPages")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .collect();
     const existing = new Set(existingRows.map((row) => row.normalizedUrl));
     let insertedCount = 0;
@@ -703,7 +911,9 @@ export const claimQueuedScanRunPages = internalMutation({
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("scanRunPages")
-      .withIndex("by_scanRun_status", (q) => q.eq("scanRunId", args.scanRunId).eq("status", "queued"))
+      .withIndex("by_scanRun_status", (q) =>
+        q.eq("scanRunId", args.scanRunId).eq("status", "queued"),
+      )
       .order("asc")
       .take(Math.max(1, Math.min(25, args.limit)));
     return rows.map((row) => row._id);
@@ -719,7 +929,9 @@ export const cleanupExpiredSessionLeases = internalMutation({
   handler: async (ctx, args) => {
     const expired = await ctx.db
       .query("scanSessionLeases")
-      .withIndex("by_leaseKey_expiresAt", (q) => q.eq("leaseKey", args.leaseKey).lt("expiresAt", args.now))
+      .withIndex("by_leaseKey_expiresAt", (q) =>
+        q.eq("leaseKey", args.leaseKey).lt("expiresAt", args.now),
+      )
       .collect();
     for (const lease of expired) {
       await ctx.db.delete(lease._id);
@@ -996,7 +1208,10 @@ export const failScanRunPage = internalMutation({
 });
 
 export const preparePageRerun = internalMutation({
-  args: { scanRunId: v.id("scanRuns"), pageRunIds: v.array(v.id("scanRunPages")) },
+  args: {
+    scanRunId: v.id("scanRuns"),
+    pageRunIds: v.array(v.id("scanRunPages")),
+  },
   returns: v.number(),
   handler: async (ctx, args) => {
     let updated = 0;
@@ -1006,7 +1221,9 @@ export const preparePageRerun = internalMutation({
       if (!page || page.scanRunId !== args.scanRunId) continue;
       const oldFindings = await ctx.db
         .query("findings")
-        .withIndex("by_scanRunPage_createdAt", (q) => q.eq("scanRunPageId", pageRunId))
+        .withIndex("by_scanRunPage_createdAt", (q) =>
+          q.eq("scanRunPageId", pageRunId),
+        )
         .collect();
       for (const finding of oldFindings) {
         await ctx.db.delete(finding._id);
@@ -1077,7 +1294,9 @@ export const replaceFindingsForRun = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("findings")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .collect();
     for (const row of existing) {
       await ctx.db.delete(row._id);
@@ -1149,7 +1368,9 @@ export const replaceFindingsForPage = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("findings")
-      .withIndex("by_scanRunPage_createdAt", (q) => q.eq("scanRunPageId", args.scanRunPageId))
+      .withIndex("by_scanRunPage_createdAt", (q) =>
+        q.eq("scanRunPageId", args.scanRunPageId),
+      )
       .collect();
     for (const row of existing) {
       await ctx.db.delete(row._id);
@@ -1260,7 +1481,9 @@ export const finalizeWebsiteScanRun = internalMutation({
     const progress = await recomputeScanRunProgress(ctx, args.scanRunId);
     const rows = await ctx.db
       .query("findings")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .collect();
     const findings = rows.map((row) => ({
       severity: row.severity,
@@ -1270,7 +1493,10 @@ export const finalizeWebsiteScanRun = internalMutation({
     const generatedAt = nowMs();
     const asset = await ctx.db.get(scanRun.assetId);
     const assetLabel =
-      asset?.title ?? asset?.sourceUrl ?? asset?.filename ?? String(scanRun.assetId);
+      asset?.title ??
+      asset?.sourceUrl ??
+      asset?.filename ??
+      String(scanRun.assetId);
     const markdown = buildReportMarkdown({
       assetLabel,
       profile: scanRun.profile,
@@ -1286,7 +1512,9 @@ export const finalizeWebsiteScanRun = internalMutation({
       completedAt: generatedAt,
       findingCount: rows.length,
       errorMessage:
-        progress.failedPages > 0 ? `${progress.failedPages} page scans failed.` : undefined,
+        progress.failedPages > 0
+          ? `${progress.failedPages} page scans failed.`
+          : undefined,
       updatedAt: generatedAt,
     });
 
@@ -1318,7 +1546,9 @@ export const getScanSummary = query({
     }
     const rows = await ctx.db
       .query("findings")
-      .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+      .withIndex("by_scanRun_createdAt", (q) =>
+        q.eq("scanRunId", args.scanRunId),
+      )
       .collect();
     const findings = rows.map((row) => ({
       severity: row.severity,
@@ -1327,4 +1557,3 @@ export const getScanSummary = query({
     return computeSummary(findings);
   },
 });
-
