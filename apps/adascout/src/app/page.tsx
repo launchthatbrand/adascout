@@ -6,7 +6,7 @@ import { Button } from "@acme/ui/button";
 
 export default function HomePage() {
   return (
-    <main className="flex flex-1 flex-col">
+    <main className="flex flex-1 flex-col overflow-hidden">
       <section className="from-background via-background to-primary/5 relative overflow-hidden bg-gradient-to-b px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
         <div className="absolute inset-0 -z-10 overflow-hidden">
           <div className="bg-primary/5 absolute -top-40 -right-40 h-80 w-80 rounded-full blur-3xl" />
@@ -25,7 +25,7 @@ export default function HomePage() {
 
           <h1 className="mt-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
             Make Your Website{" "}
-            <span className="from-primary via-primary to-primary/70 bg-gradient-to-r bg-clip-text text-transparent">
+            <span className="text-primary font-bold">
               Accessible to Everyone
             </span>
           </h1>
