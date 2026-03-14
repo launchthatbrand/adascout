@@ -1,0 +1,76 @@
+---
+title: "WCAG 2.2: What's New and What You Need to Know"
+description: "The latest version of WCAG introduces significant new requirements for accessibility. Learn what's changed and how to prepare."
+slug: "wcag-2-2-whats-new"
+publishedAt: "2026-03-01"
+author: "ADA Scout Team"
+tags: ["wcag", "compliance", "accessibility", "guidelines"]
+product: "ada-scout"
+status: "published"
+---
+
+The Web Content Accessibility Guidelines (WCAG) 2.2 has arrived, bringing with it new requirements that address longstanding accessibility barriers. Here's what you need to know about the latest version.
+
+## What's New in WCAG 2.2
+
+WCAG 2.2 introduces **13 new success criteria** that weren't present in WCAG 2.1. These additions focus on improving accessibility for users with cognitive and learning disabilities, as well as addressing gaps in mobile accessibility.
+
+### New Success Criteria at a Glance
+
+| Level | Criteria                  | Description                                                         |
+| ----- | ------------------------- | ------------------------------------------------------------------- |
+| A     | Focus Appearance          | Requires focus indicators to have sufficient contrast and thickness |
+| AA    | Dragging Movements        | Ensures functionality is available without complex gestures         |
+| AA    | Target Size Minimum       | Requires interactive targets to be at least 24x24 CSS pixels        |
+| AAA   | Accessible Authentication | Removes memory tests from authentication processes                  |
+| AAA   | Motion Animation          | Respects user preference for reduced motion                         |
+
+<Callout title="Key Takeaway" type="info">
+  While most new criteria are Level A or AA, several are Level AAA. Focus on the
+  A and AA criteria first for compliance with most regulations.
+</Callout>
+
+## Key Changes You Shouldn't Ignore
+
+### 1. Focus Appearance (Level A)
+
+The new Focus Appearance criterion requires that:
+
+- Focus indicators are visible on all interactive elements
+- The focus indicator area is at least 1 CSS pixel thick
+- The indicator has at least a 3:1 contrast ratio against adjacent colors
+
+**What this means for you:** Review all buttons, links, and form inputs to ensure the focus state is clearly visible.
+
+### 2. Dragging Movements (Level AA)
+
+This criterion ensures that all functionality available through dragging is also available through a single pointer. This addresses issues for users who cannot perform drag operations due to motor impairments.
+
+**What this means for you:** If you have drag-and-drop interfaces, add alternative controls like up/down buttons or select menus.
+
+### 3. Target Size Minimum (Level AA)
+
+Interactive targets must be at least 24x24 CSS pixels. This helps users with motor impairments who have difficulty precisely targeting small click areas.
+
+**What this means for you:** Audit your buttons, links, and interactive elements. Larger touch targets improve usability for everyone.
+
+## How ADA Scout Helps
+
+ADA Scout automatically checks for many of these new WCAG 2.2 requirements:
+
+- Focus indicator visibility
+- Target size compliance
+- Form accessibility issues
+
+Run a scan to see how your site measures up against WCAG 2.2 AA standards.
+
+<InlineCta label="Run a Free Accessibility Scan" href="/admin/assets" />
+
+## Next Steps
+
+1. Review the new WCAG 2.2 success criteria
+2. Run an accessibility scan to identify gaps
+3. Prioritize fixes based on user impact
+4. Test with actual assistive technologies
+
+Remember: Accessibility is an ongoing process, not a destination. Regular scanning and testing help maintain compliance as your site evolves.
