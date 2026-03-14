@@ -12,6 +12,7 @@ import { cn } from "@acme/ui";
 const tabs = [
   { href: "/admin/assets/[assetId]", label: "Overview" },
   { href: "/admin/assets/[assetId]/scans", label: "Scans" },
+  { href: "/admin/assets/[assetId]/pages", label: "Pages" },
   { href: "/admin/assets/[assetId]/findings", label: "Findings" },
 ];
 
@@ -45,6 +46,7 @@ export default function AssetDetailsLayout({
     const basePath = `/admin/assets/${assetId}`;
     if (pathname === basePath) return basePath;
     if (pathname.startsWith(`${basePath}/scans`)) return `${basePath}/scans`;
+    if (pathname.startsWith(`${basePath}/pages`)) return `${basePath}/pages`;
     if (pathname.startsWith(`${basePath}/findings`))
       return `${basePath}/findings`;
     return basePath;
