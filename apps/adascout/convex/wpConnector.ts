@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import { internalAction, mutation } from "./_generated/server";
+import { internalAction, mutation, query } from "./_generated/server";
 import { requireUserId } from "./helpers";
 
 const WP_CREDENTIALS_ENCRYPTION_KEY = "adascout-wp-key-v1";
@@ -276,7 +276,7 @@ function extractPostId(pageUrl: string, siteUrl: string): number | null {
   return slugMatch ? 1 : null;
 }
 
-export const getWpConnectionStatus = mutation({
+export const getWpConnectionStatus = query({
   args: { assetId: v.id("assets") },
   returns: v.object({
     connected: v.boolean(),
