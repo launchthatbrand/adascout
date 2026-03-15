@@ -26,6 +26,10 @@ export default function FindingDetailPage() {
     api.findings.getMyFinding,
     findingId ? { findingId } : "skip",
   );
+  const findingHistory = useQuery(
+    api.findings.getFindingHistory,
+    findingId ? { findingId } : "skip",
+  );
   const asset = useQuery(api.assets.getMyAsset, assetId ? { assetId } : "skip");
   const updateFindingStatus = useMutation(api.findings.updateMyFindingStatus);
   const assignFinding = useMutation(api.findings.assignMyFinding);
@@ -214,6 +218,82 @@ export default function FindingDetailPage() {
             <div>
               <p className="text-muted-foreground text-sm">Resolution Notes</p>
               <p className="mt-1">{finding.resolutionNotes}</p>
+            </div>
+          )}
+
+          {findingHistory && findingHistory.history.length > 0 && (
+            <div className="border-t pt-4">
+              <p className="text-muted-foreground text-sm font-medium">
+                Finding History
+              </p>
+              <div className="mt-3 space-y-3">
+                {findingHistory.summary && (
+                  <div className="flex gap-4 text-sm">
+                    <span>
+                      First seen:{" "}
+                      {new Date(
+                        findingHistory.summary.firstSeenAt,
+                      ).toLocaleDateString()}
+                    </span>
+                    <span>Total: {findingHistory.summary.totalInstances}</span>
+                    <span className="text-green-600">
+                      Resolved: {findingHistory.summary.resolvedCount}
+                    </span>
+                    <span className="text-orange-600">
+                      Open: {findingHistory.summary.openCount}
+                    </span>
+                  </div>
+                )}
+                <div className="overflow-hidden rounded-lg border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Scan
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Date
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Status
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Page
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {findingHistory.history.map((item, idx) => (
+                        <tr key={idx} className="border-t">
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {String(item.scanRunId).slice(0, 8)}...
+                          </td>
+                          <td className="px-3 py-2">
+                            {new Date(item.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="px-3 py-2">
+                            <Badge
+                              variant={
+                                item.status === "resolved" ||
+                                item.status === "verified_on_rescan"
+                                  ? "default"
+                                  : item.status === "regressed"
+                                    ? "destructive"
+                                    : "secondary"
+                              }
+                            >
+                              {item.status}
+                            </Badge>
+                          </td>
+                          <td className="max-w-[200px] truncate px-3 py-2">
+                            {item.pageUrl || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
 
