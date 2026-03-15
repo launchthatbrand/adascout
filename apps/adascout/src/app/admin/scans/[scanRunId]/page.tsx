@@ -64,6 +64,20 @@ export default function ScanDetailsPage() {
   const cancelScanRun = useMutation(api.scans.cancelMyScanRun);
   const deleteScanRun = useMutation(api.scans.deleteMyScanRun);
   const rerunSelectedPages = useMutation(api.scans.rerunSelectedPages);
+
+  const fixAllPageIssues = useMutation(api.wpConnector.fixAllPageIssues);
+  const wpConnectionStatus = useQuery(
+    api.wpConnector.getWpConnectionStatus,
+    scanRun?.assetId ? { assetId: scanRun.assetId } : "skip",
+  );
+
+  const [remediatingFindingId, setRemediatingFindingId] = useState<
+    string | null
+  >(null);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
+  const [remediationSuccess, setRemediationSuccess] = useState<string | null>(
+    null,
+  );
   const [statusMessage, setStatusMessage] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
@@ -71,6 +85,104 @@ export default function ScanDetailsPage() {
     null,
   );
   const [selectedPageUrl, setSelectedPageUrl] = useState<string | null>(null);
+  const [isRemediatingPage, setIsRemediatingPage] = useState(false);
+
+  const handleRemediateFinding = async (finding: {
+    _id: string;
+    ruleId: string;
+    target?: string;
+    pageUrl?: string;
+  }) => {
+    if (!scanRun?.assetId || !selectedPageUrl) return;
+
+    setRemediatingFindingId(finding._id);
+    setRemediationError(null);
+    setRemediationSuccess(null);
+
+    try {
+      const result = await fixAllPageIssues({
+        assetId: scanRun.assetId,
+        pageUrl: selectedPageUrl,
+        findingIds: [finding._id as Id<"findings">],
+      });
+
+      if (result.success && result.fixedCount > 0) {
+        setRemediationSuccess(`Fixed ${result.fixedCount} issue(s)`);
+        await updateFindingStatus({
+          findingId: finding._id as Id<"findings">,
+          status: "resolved",
+        });
+      } else {
+        setRemediationError(result.errors[0] || "Failed to remediate");
+      }
+    } catch (error) {
+      setRemediationError(
+        error instanceof Error ? error.message : "Remediation failed",
+      );
+    } finally {
+      setRemediatingFindingId(null);
+    }
+  };
+
+  const handleRemediatePage = async () => {
+    if (!scanRun?.assetId || !selectedPageUrl || !selectedPageFindings) return;
+
+    setIsRemediatingPage(true);
+    setRemediationError(null);
+    setRemediationSuccess(null);
+
+    try {
+      const findingIds = selectedPageFindings
+        .filter(
+          (f) => f.status !== "resolved" && f.status !== "verified_on_rescan",
+        )
+        .map((f) => f._id as Id<"findings">);
+
+      if (findingIds.length === 0) {
+        setRemediationSuccess("No unresolved findings to remediate");
+        return;
+      }
+
+      const result = await fixAllPageIssues({
+        assetId: scanRun.assetId,
+        pageUrl: selectedPageUrl,
+        findingIds,
+      });
+
+      if (result.success) {
+        setRemediationSuccess(
+          `Remediated ${result.fixedCount} of ${findingIds.length} issue(s)`,
+        );
+        for (const id of findingIds.slice(0, result.fixedCount)) {
+          await updateFindingStatus({
+            findingId: id,
+            status: "resolved",
+          });
+        }
+      } else {
+        setRemediationError(result.errors[0] || "Failed to remediate page");
+      }
+    } catch (error) {
+      setRemediationError(
+        error instanceof Error ? error.message : "Remediation failed",
+      );
+    } finally {
+      setIsRemediatingPage(false);
+    }
+  };
+
+  const fixableRules = [
+    "image-alt",
+    "input-image-alt",
+    "area-alt",
+    "object-alt",
+    "svg-img-alt",
+    "link-name",
+    "anchor-name",
+    "heading-order",
+  ];
+
+  const canFixFinding = (ruleId: string) => fixableRules.includes(ruleId);
 
   const grouped = useMemo(() => {
     const groups = {
@@ -464,11 +576,42 @@ export default function ScanDetailsPage() {
       >
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Page Findings</DialogTitle>
-            <DialogDescription className="break-all">
-              {selectedPageUrl ?? "Selected page"}
-            </DialogDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle>Page Findings</DialogTitle>
+                <DialogDescription className="break-all">
+                  {selectedPageUrl ?? "Selected page"}
+                </DialogDescription>
+              </div>
+              {wpConnectionStatus?.connected && selectedPageFindings ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={isRemediatingPage}
+                  onClick={() => void handleRemediatePage()}
+                >
+                  {isRemediatingPage
+                    ? "Remediating..."
+                    : `Remediate All (${selectedPageFindings.filter((f) => f.status !== "resolved" && f.status !== "verified_on_rescan" && canFixFinding(f.ruleId)).length})`}
+                </Button>
+              ) : null}
+            </div>
           </DialogHeader>
+          {remediationError || remediationSuccess ? (
+            <div
+              className={`rounded-lg px-4 py-3 ${remediationError ? "border border-red-200 bg-red-50 text-red-700" : "border border-emerald-200 bg-emerald-50 text-emerald-700"}`}
+            >
+              {remediationError || remediationSuccess}
+            </div>
+          ) : null}
+          {!wpConnectionStatus?.connected ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-700">
+              <p className="text-sm">
+                Connect a WordPress staging site in Asset Settings to enable
+                one-click remediation of accessibility issues.
+              </p>
+            </div>
+          ) : null}
           <div className="space-y-3">
             {(selectedPageFindings ?? []).map((finding) => (
               <article
@@ -558,12 +701,35 @@ export default function ScanDetailsPage() {
                       variant="secondary"
                       onClick={() =>
                         void assignFinding({
-                          findingId: finding._id,
+                          findingId: finding._id as Id<"findings">,
                           assignee: actor.userId,
                         })
                       }
                     >
                       Assign Me
+                    </Button>
+                  ) : null}
+                  {wpConnectionStatus?.connected &&
+                  canFixFinding(finding.ruleId) ? (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={
+                        remediatingFindingId === String(finding._id) ||
+                        finding.status === "resolved"
+                      }
+                      onClick={() =>
+                        void handleRemediateFinding({
+                          _id: String(finding._id),
+                          ruleId: finding.ruleId,
+                          target: finding.target,
+                          pageUrl: selectedPageUrl ?? undefined,
+                        })
+                      }
+                    >
+                      {remediatingFindingId === String(finding._id)
+                        ? "Remediating..."
+                        : "Remediate"}
                     </Button>
                   ) : null}
                 </div>
