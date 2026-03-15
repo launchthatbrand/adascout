@@ -92,7 +92,7 @@ export default function AssetOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid min-w-0 gap-4 overflow-hidden sm:grid-cols-2 lg:grid-cols-4">
         {/* Total Scans Card */}
         <Card className="relative overflow-hidden border-slate-200 dark:border-slate-800">
           <div className="absolute top-0 left-0 h-full w-1 bg-gradient-to-b from-blue-500 to-indigo-600" />
