@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import { internalMutation } from "./_generated/server";
+import { mutation } from "./_generated/server";
 import { requireUserId } from "./helpers";
 
 const MONDAY_CREDENTIALS_ENCRYPTION_KEY = "adascout-monday-key-v1";
@@ -45,7 +45,7 @@ async function mondayApiRequest(
   return response.json();
 }
 
-export const connectMonday = internalMutation({
+export const connectMonday = mutation({
   args: {
     assetId: v.id("assets"),
     mondayApiToken: v.string(),
@@ -65,7 +65,6 @@ export const connectMonday = internalMutation({
       return { success: false, error: "Asset not found" };
     }
 
-    // Validate the API token with a test query
     const validateQuery = `query { me { id name } }`;
     const validationResult = await mondayApiRequest(
       args.mondayApiToken,
@@ -76,7 +75,6 @@ export const connectMonday = internalMutation({
       return { success: false, error: "Invalid API token" };
     }
 
-    // Create board named after the asset
     const boardName =
       asset.title || asset.normalizedUrl || "Adascout Scan Results";
     const createBoardMutation = `mutation { create_board(board_name: "${boardName}", board_kind: "public") { id } }`;
@@ -92,7 +90,6 @@ export const connectMonday = internalMutation({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const boardId = (boardResult.data as any).create_board.id;
 
-    // Create columns: Page Name (text), Status (status), Severity (status), Date Initial Scan (date), Date Last Scan (date)
     const columns = [
       { type: "text", title: "Page Name", id: "page_name" },
       { type: "status", title: "Status", id: "status" },
@@ -106,7 +103,6 @@ export const connectMonday = internalMutation({
       await mondayApiRequest(args.mondayApiToken, createColMutation);
     }
 
-    // Save to asset
     await ctx.db.patch(args.assetId, {
       mondayApiToken: encrypt(args.mondayApiToken),
       mondayBoardId: boardId,
@@ -118,7 +114,7 @@ export const connectMonday = internalMutation({
   },
 });
 
-export const disconnectMonday = internalMutation({
+export const disconnectMonday = mutation({
   args: { assetId: v.id("assets") },
   returns: v.object({ success: v.boolean() }),
   handler: async (ctx, args): Promise<{ success: boolean }> => {
@@ -139,7 +135,7 @@ export const disconnectMonday = internalMutation({
   },
 });
 
-export const syncPages = internalMutation({
+export const syncPages = mutation({
   args: { assetId: v.id("assets") },
   returns: v.object({
     success: v.boolean(),
@@ -163,7 +159,6 @@ export const syncPages = internalMutation({
     const apiToken = decrypt(asset.mondayApiToken);
     const boardId = asset.mondayBoardId;
 
-    // Get discovered pages for this asset
     const pages = await ctx.db
       .query("discoveredPages")
       .withIndex("by_asset_discoveredAt", (q) => q.eq("assetId", args.assetId))
@@ -178,14 +173,12 @@ export const syncPages = internalMutation({
 
     let itemCount = 0;
     for (const page of pages) {
-      // Extract page name from URL
       const urlParts = page.normalizedUrl.split("/");
       const pageName =
         urlParts[urlParts.length - 1] ||
         urlParts[urlParts.length - 2] ||
         page.normalizedUrl;
 
-      // Determine which date column to update
       const dateColumn = isFirstSync ? "date_initial" : "date_last";
       const dateValue = now;
 
@@ -203,7 +196,7 @@ export const syncPages = internalMutation({
   },
 });
 
-export const syncFindings = internalMutation({
+export const syncFindings = mutation({
   args: {
     assetId: v.id("assets"),
     scanRunId: v.id("scanRuns"),
