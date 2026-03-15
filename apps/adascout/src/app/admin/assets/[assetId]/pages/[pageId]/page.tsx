@@ -1,11 +1,12 @@
 "use client";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
+import { RefreshCw } from "lucide-react";
 
 import type { ColumnDefinition } from "@acme/ui/entity-list";
 import { Badge } from "@acme/ui/badge";
@@ -53,8 +54,11 @@ export default function PageDetailPage() {
     api.scans.getMyScanRunPage,
     pageId ? { pageId } : "skip",
   );
+  const createScanRun = useMutation(api.scans.createScanRun);
   const updateFindingStatus = useMutation(api.findings.updateMyFindingStatus);
   const assignFinding = useMutation(api.findings.assignMyFinding);
+  const [isRescanning, setIsRescanning] = useState(false);
+  const [rescanMessage, setRescanMessage] = useState("");
   const actor = useQuery(api.findings.getMyFindingActor, {}) as
     | { userId: Id<"users"> }
     | undefined;
@@ -362,6 +366,45 @@ export default function PageDetailPage() {
                 Visit Page
               </a>
             </Button>
+            <Button
+              variant="outline"
+              disabled={isRescanning || !page?.pageUrl}
+              onClick={async () => {
+                if (!assetId || !page?.pageUrl) return;
+                try {
+                  setIsRescanning(true);
+                  setRescanMessage("");
+                  await createScanRun({
+                    assetId,
+                    pageUrls: [page.pageUrl],
+                  });
+                  setRescanMessage(
+                    "Scan queued! You'll be redirected to the scan.",
+                  );
+                  setTimeout(() => {
+                    window.location.href = `/admin/assets/${assetId}/scans`;
+                  }, 1500);
+                } catch (error) {
+                  setRescanMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to queue scan",
+                  );
+                } finally {
+                  setIsRescanning(false);
+                }
+              }}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${isRescanning ? "animate-spin" : ""}`}
+              />
+              {isRescanning ? "Queuing..." : "Rescan Page"}
+            </Button>
+            {rescanMessage && (
+              <span className="text-muted-foreground self-center text-sm">
+                {rescanMessage}
+              </span>
+            )}
           </div>
         </div>
       </div>

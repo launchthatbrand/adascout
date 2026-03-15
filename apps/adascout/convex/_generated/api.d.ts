@@ -15,6 +15,7 @@ import type * as helpers from "../helpers.js";
 import type * as http from "../http.js";
 import type * as httpActions from "../httpActions.js";
 import type * as migrations from "../migrations.js";
+import type * as mondayConnector from "../mondayConnector.js";
 import type * as playwrightSmoke from "../playwrightSmoke.js";
 import type * as pluginAuth from "../pluginAuth.js";
 import type * as remediation from "../remediation.js";
@@ -27,6 +28,7 @@ import type * as viewer from "../viewer.js";
 import type * as websiteScanWorkflow from "../websiteScanWorkflow.js";
 import type * as workflow from "../workflow.js";
 import type * as workflows from "../workflows.js";
+import type * as wpConnector from "../wpConnector.js";
 
 import type {
   ApiFromModules,
@@ -42,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   httpActions: typeof httpActions;
   migrations: typeof migrations;
+  mondayConnector: typeof mondayConnector;
   playwrightSmoke: typeof playwrightSmoke;
   pluginAuth: typeof pluginAuth;
   remediation: typeof remediation;
@@ -54,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   websiteScanWorkflow: typeof websiteScanWorkflow;
   workflow: typeof workflow;
   workflows: typeof workflows;
+  wpConnector: typeof wpConnector;
 }>;
 
 /**

@@ -1,7 +1,9 @@
 import { ConvexError, v } from "convex/values";
+
+import type { Id } from "./_generated/dataModel";
+import { api, internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { internal } from "./_generated/api";
-import { nowMs, normalizeHttpUrl, requireUserId } from "./helpers";
+import { normalizeHttpUrl, nowMs, requireUserId } from "./helpers";
 import { assetKindValidator, assetStatusValidator } from "./scanTypes";
 
 export const generateAssetUploadUrl = mutation({
@@ -17,9 +19,16 @@ export const createUrlAsset = mutation({
   args: {
     sourceUrl: v.string(),
     title: v.optional(v.string()),
+    autoDiscover: v.optional(v.boolean()),
   },
-  returns: v.id("assets"),
-  handler: async (ctx, args) => {
+  returns: v.object({
+    assetId: v.id("assets"),
+    discoveredPages: v.array(v.any()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ assetId: Id<"assets">; discoveredPages: unknown[] }> => {
     const userId = await requireUserId(ctx);
     const normalizedUrl = normalizeHttpUrl(args.sourceUrl);
     const existing = await ctx.db
@@ -28,20 +37,27 @@ export const createUrlAsset = mutation({
         q.eq("createdBy", userId).eq("normalizedUrl", normalizedUrl),
       )
       .first();
+    let assetId: Id<"assets">;
     if (existing) {
-      return existing._id;
+      assetId = existing._id;
+    } else {
+      const now = nowMs();
+      assetId = await ctx.db.insert("assets", {
+        kind: "url",
+        status: "ready",
+        title: args.title?.trim() ?? undefined,
+        sourceUrl: args.sourceUrl.trim(),
+        normalizedUrl,
+        createdBy: userId,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
-    const now = nowMs();
-    return await ctx.db.insert("assets", {
-      kind: "url",
-      status: "ready",
-      title: args.title?.trim() ?? undefined,
-      sourceUrl: args.sourceUrl.trim(),
-      normalizedUrl,
-      createdBy: userId,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const discovered =
+      args.autoDiscover !== false
+        ? await ctx.runMutation(api.scans.discoverPages, { assetId })
+        : [];
+    return { assetId, discoveredPages: discovered };
   },
 });
 
@@ -62,7 +78,9 @@ export const createPdfAsset = mutation({
     }
     const maxPdfBytes = 25 * 1024 * 1024;
     if (args.sizeBytes <= 0 || args.sizeBytes > maxPdfBytes) {
-      throw new Error(`PDF size must be between 1 byte and ${maxPdfBytes} bytes.`);
+      throw new Error(
+        `PDF size must be between 1 byte and ${maxPdfBytes} bytes.`,
+      );
     }
     const now = nowMs();
     return await ctx.db.insert("assets", {
@@ -102,6 +120,8 @@ export const listMyAssets = query({
       createdAt: v.number(),
       updatedAt: v.number(),
       fileUrl: v.union(v.string(), v.null()),
+      mondayConnectedAt: v.optional(v.number()),
+      mondayBoardId: v.optional(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -121,7 +141,9 @@ export const listMyAssets = query({
 
     const result = [];
     for (const row of filtered) {
-      const fileUrl = row.storageId ? await ctx.storage.getUrl(row.storageId) : null;
+      const fileUrl = row.storageId
+        ? await ctx.storage.getUrl(row.storageId)
+        : null;
       result.push({
         _id: row._id,
         _creationTime: row._creationTime,
@@ -137,6 +159,8 @@ export const listMyAssets = query({
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         fileUrl,
+        mondayConnectedAt: row.mondayConnectedAt,
+        mondayBoardId: row.mondayBoardId,
       });
     }
     return result;
@@ -160,6 +184,8 @@ export const getMyAsset = query({
       createdAt: v.number(),
       updatedAt: v.number(),
       fileUrl: v.union(v.string(), v.null()),
+      mondayConnectedAt: v.optional(v.number()),
+      mondayBoardId: v.optional(v.string()),
     }),
     v.null(),
   ),
@@ -169,7 +195,9 @@ export const getMyAsset = query({
     if (!row || row.createdBy !== userId) {
       return null;
     }
-    const fileUrl = row.storageId ? await ctx.storage.getUrl(row.storageId) : null;
+    const fileUrl = row.storageId
+      ? await ctx.storage.getUrl(row.storageId)
+      : null;
     return {
       _id: row._id,
       kind: row.kind,
@@ -184,6 +212,8 @@ export const getMyAsset = query({
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       fileUrl,
+      mondayConnectedAt: row.mondayConnectedAt,
+      mondayBoardId: row.mondayBoardId,
     };
   },
 });
@@ -203,7 +233,9 @@ export const deleteMyAsset = mutation({
       .withIndex("by_asset_createdAt", (q) => q.eq("assetId", args.assetId))
       .collect();
     for (const scanRun of scanRuns) {
-      await ctx.runMutation(internal.scans.deleteScanRunCascadeInternal, { scanRunId: scanRun._id });
+      await ctx.runMutation(internal.scans.deleteScanRunCascadeInternal, {
+        scanRunId: scanRun._id,
+      });
     }
 
     if (asset.storageId) {
@@ -214,4 +246,3 @@ export const deleteMyAsset = mutation({
     return null;
   },
 });
-
