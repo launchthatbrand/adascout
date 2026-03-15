@@ -70,7 +70,7 @@ export default async function RootLayout({
   let showHeader = fallbackShowHeader;
   let showSidebar = fallbackShowSidebar;
   if (hasPathnameHeader) {
-    showHeader = true;
+    showHeader = firstSegment !== "admin";
     showSidebar = firstSegment === "admin";
     if (firstSegment === "sign-in" || firstSegment === "sign-up") {
       showHeader = false;

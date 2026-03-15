@@ -55,17 +55,17 @@ export default function AdminSidebar() {
         >
           <Image
             src="/adascout_logo_dark_500.png"
-            alt="ADA Scout logo"
-            width={50}
-            height={50}
+            alt="ADA Scout"
+            width={32}
+            height={32}
             className="block rounded-sm dark:hidden"
             priority
           />
           <Image
             src="/adascout_logo_light_500.png"
-            alt="ADA Scout logo"
-            width={50}
-            height={50}
+            alt="ADA Scout"
+            width={32}
+            height={32}
             className="hidden rounded-sm dark:block"
             priority
           />
