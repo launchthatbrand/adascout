@@ -15,6 +15,7 @@ const tabs = [
   { href: "/admin/assets/[assetId]/scans", label: "Scans" },
   { href: "/admin/assets/[assetId]/pages", label: "Pages" },
   { href: "/admin/assets/[assetId]/findings", label: "Findings" },
+  { href: "/admin/assets/[assetId]/settings", label: "Settings" },
 ];
 
 export default function AssetDetailsLayout({
@@ -50,6 +51,8 @@ export default function AssetDetailsLayout({
     if (pathname.startsWith(`${basePath}/pages`)) return `${basePath}/pages`;
     if (pathname.startsWith(`${basePath}/findings`))
       return `${basePath}/findings`;
+    if (pathname.startsWith(`${basePath}/settings`))
+      return `${basePath}/settings`;
     return basePath;
   }, [pathname, assetId, tabLinks]);
 
