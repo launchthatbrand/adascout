@@ -1,14 +1,15 @@
 "use client";
 
-import Link from "next/link";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
+
 import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { EntityList } from "@acme/ui/entity-list";
 import { Badge } from "@acme/ui/badge";
 import { Button } from "@acme/ui/button";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { EntityList } from "@acme/ui/entity-list";
 
 type ScanRow = Record<string, unknown> & {
   id: string;
@@ -59,12 +60,17 @@ export default function ScansPage() {
   const assets = useQuery(api.assets.listMyAssets, { limit: 300 });
   const deleteScanRun = useMutation(api.scans.deleteMyScanRun);
   const [statusMessage, setStatusMessage] = useState("");
-  const [deletingScanRunId, setDeletingScanRunId] = useState<string | null>(null);
+  const [deletingScanRunId, setDeletingScanRunId] = useState<string | null>(
+    null,
+  );
 
   const assetLabelById = useMemo(() => {
     const map = new Map<string, string>();
     for (const asset of assets ?? []) {
-      map.set(String(asset._id), asset.title ?? asset.filename ?? asset.sourceUrl ?? String(asset._id));
+      map.set(
+        String(asset._id),
+        asset.title ?? asset.filename ?? asset.sourceUrl ?? String(asset._id),
+      );
     }
     return map;
   }, [assets]);
@@ -97,7 +103,7 @@ export default function ScansPage() {
         cell: (row: ScanRow) => (
           <Link
             href={`/admin/scans/${row.id}`}
-            className="font-mono text-sm text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline underline-offset-4"
+            className="font-mono text-sm text-indigo-600 underline underline-offset-4 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
           >
             {row.id.slice(0, 10)}...
           </Link>
@@ -109,7 +115,9 @@ export default function ScansPage() {
         accessorKey: "assetId",
         minWidth: "180px",
         cell: (row: ScanRow) => (
-          <span className="text-sm">{assetLabelById.get(row.assetId) ?? row.assetId}</span>
+          <span className="text-sm">
+            {assetLabelById.get(row.assetId) ?? row.assetId}
+          </span>
         ),
       },
       {
@@ -152,7 +160,9 @@ export default function ScansPage() {
         accessorKey: "findingCount",
         minWidth: "80px",
         cell: (row: ScanRow) => (
-          <span>{typeof row.findingCount === "number" ? row.findingCount : "—"}</span>
+          <span>
+            {typeof row.findingCount === "number" ? row.findingCount : "—"}
+          </span>
         ),
       },
       {
@@ -170,30 +180,36 @@ export default function ScansPage() {
         id: "actions",
         header: "Actions",
         accessorKey: "id",
-        minWidth: "100px",
+        minWidth: "120px",
         cell: (row: ScanRow) => (
-          <Button
-            size="sm"
-            variant="destructive"
-            disabled={deletingScanRunId === row.id}
-            onClick={async () => {
-              const confirmed = window.confirm(
-                "Delete this scan run and all related pages, findings, reports, and session leases?",
-              );
-              if (!confirmed) return;
-              try {
-                setDeletingScanRunId(row.id);
-                await deleteScanRun({ scanRunId: row.id as Id<"scanRuns"> });
-                setStatusMessage("Scan run deleted.");
-              } catch (error) {
-                setStatusMessage(error instanceof Error ? error.message : "Failed to delete scan run.");
-              } finally {
-                setDeletingScanRunId(null);
-              }
-            }}
-          >
-            Delete
-          </Button>
+          <div className="flex items-center">
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={deletingScanRunId === row.id}
+              onClick={async () => {
+                const confirmed = window.confirm(
+                  "Delete this scan run and all related pages, findings, reports, and session leases?",
+                );
+                if (!confirmed) return;
+                try {
+                  setDeletingScanRunId(row.id);
+                  await deleteScanRun({ scanRunId: row.id as Id<"scanRuns"> });
+                  setStatusMessage("Scan run deleted.");
+                } catch (error) {
+                  setStatusMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to delete scan run.",
+                  );
+                } finally {
+                  setDeletingScanRunId(null);
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </div>
         ),
       },
     ],
@@ -221,4 +237,3 @@ export default function ScansPage() {
     </section>
   );
 }
-
