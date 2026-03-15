@@ -24,6 +24,7 @@ export interface ColumnDefinition<
   cell?: ModernCellRenderer<T> | LegacyCellRenderer<T>;
   sortable?: boolean;
   description?: string;
+  minWidth?: string;
 }
 
 /**

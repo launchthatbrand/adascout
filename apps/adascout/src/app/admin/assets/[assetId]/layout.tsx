@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { useQuery } from "convex/react";
+import { ArrowLeft, FileText, Globe } from "lucide-react";
 
 import { cn } from "@acme/ui";
 
@@ -53,35 +54,45 @@ export default function AssetDetailsLayout({
   }, [pathname, assetId, tabLinks]);
 
   return (
-    <section className="w-full space-y-4 p-4">
-      <div className="border-border/60 bg-background rounded-xl border p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-muted-foreground text-xs tracking-[0.2em] uppercase">
-              Asset
-            </p>
-            <h1 className="text-xl font-semibold">
-              {asset?.title ??
-                asset?.filename ??
-                asset?.sourceUrl ??
-                (assetId ? `${assetId.slice(0, 12)}...` : "unknown")}
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm break-all">
-              {asset?.kind === "url"
-                ? (asset.sourceUrl ?? asset.normalizedUrl)
-                : (asset?.filename ?? "PDF")}
-            </p>
+    <section className="w-full space-y-4 p-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-100 to-violet-100 text-indigo-600 dark:from-indigo-900/50 dark:to-violet-900/50 dark:text-indigo-400">
+              {asset?.kind === "url" ? (
+                <Globe className="h-6 w-6" />
+              ) : (
+                <FileText className="h-6 w-6" />
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-medium tracking-[0.2em] text-slate-500 uppercase dark:text-slate-400">
+                Asset
+              </p>
+              <h1 className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">
+                {asset?.title ??
+                  asset?.filename ??
+                  asset?.sourceUrl ??
+                  (assetId ? `${assetId.slice(0, 12)}...` : "unknown")}
+              </h1>
+              <p className="mt-1 text-sm break-all text-slate-500 dark:text-slate-400">
+                {asset?.kind === "url"
+                  ? (asset.sourceUrl ?? asset.normalizedUrl)
+                  : (asset?.filename ?? "PDF")}
+              </p>
+            </div>
           </div>
           <Link
             href="/admin/assets"
-            className="text-sm underline underline-offset-4"
+            className="inline-flex items-center gap-1 text-sm text-indigo-600 underline-offset-4 hover:text-indigo-800 hover:underline dark:text-indigo-400 dark:hover:text-indigo-300"
           >
+            <ArrowLeft className="h-4 w-4" />
             Back to Assets
           </Link>
         </div>
       </div>
 
-      <div className="bg-muted text-muted-foreground inline-flex h-9 w-fit items-center justify-center rounded-lg p-[3px]">
+      <div className="text-muted-foreground inline-flex h-11 w-fit items-center justify-center rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
         {tabLinks.map((tab) => {
           const isActive = activeTab === tab.href;
           return (
@@ -90,9 +101,10 @@ export default function AssetDetailsLayout({
               href={tab.href}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "text-foreground dark:text-muted-foreground focus-visible:ring-ring/50 inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-3 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-sm",
-                isActive &&
-                  "bg-background dark:text-foreground dark:border-input dark:bg-input/30 shadow-sm",
+                "inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium whitespace-nowrap transition-all",
+                isActive
+                  ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                  : "text-slate-600 hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-slate-200",
               )}
             >
               {tab.label}

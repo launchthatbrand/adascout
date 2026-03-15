@@ -124,11 +124,12 @@ export default function AssetsPage() {
         id: "title",
         header: "Asset",
         accessorKey: "title",
+        minWidth: "200px",
         cell: (row: AssetRow) => (
           <div className="space-y-1">
             <Link
               href={`/admin/assets/${row.id}`}
-              className="font-medium underline underline-offset-4"
+              className="font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline underline-offset-4"
             >
               {row.title}
             </Link>
@@ -142,14 +143,16 @@ export default function AssetsPage() {
         id: "source",
         header: "Source",
         accessorKey: "source",
+        minWidth: "250px",
         cell: (row: AssetRow) => (
-          <div className="text-sm break-all">{row.source}</div>
+          <div className="text-sm break-all max-w-[300px] truncate">{row.source}</div>
         ),
       },
       {
         id: "pages",
         header: "Pages",
         accessorKey: "discoveredPagesCount",
+        minWidth: "80px",
         cell: (row: AssetRow) =>
           row.kind === "url" ? (
             <span className="text-sm">
@@ -163,10 +166,11 @@ export default function AssetsPage() {
         id: "scan",
         header: "Latest Scan",
         accessorKey: "latestScanStatus",
+        minWidth: "120px",
         cell: (row: AssetRow) =>
           row.latestScanRunId ? (
             <Link
-              className="text-sm underline underline-offset-4"
+              className="text-sm text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline underline-offset-4"
               href={`/admin/scans/${row.latestScanRunId}`}
             >
               {row.latestScanStatus ?? "unknown"}
@@ -179,6 +183,7 @@ export default function AssetsPage() {
         id: "actions",
         header: "Actions",
         accessorKey: "id",
+        minWidth: "180px",
         cell: (row: AssetRow) => (
           <div className="flex items-center gap-2">
             <Button
