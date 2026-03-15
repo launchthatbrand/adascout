@@ -1,13 +1,15 @@
 "use client";
 
-import Link from "next/link";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
+
 import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { EntityList } from "@acme/ui/entity-list";
-import { Button } from "@acme/ui/button";
 import { Badge } from "@acme/ui/badge";
+import { Button } from "@acme/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -15,8 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@acme/ui/dialog";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { EntityList } from "@acme/ui/entity-list";
 
 type PageRow = Record<string, unknown> & {
   id: string;
@@ -37,7 +38,9 @@ export default function ScanDetailsPage() {
   const params = useParams();
   const scanRunIdParam = params.scanRunId;
   const scanRunId =
-    typeof scanRunIdParam === "string" ? (scanRunIdParam as Id<"scanRuns">) : undefined;
+    typeof scanRunIdParam === "string"
+      ? (scanRunIdParam as Id<"scanRuns">)
+      : undefined;
   const scanRun = useQuery(
     api.scans.getMyScanRun,
     scanRunId ? { scanRunId } : "skip",
@@ -64,7 +67,9 @@ export default function ScanDetailsPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  const [selectedPageRunId, setSelectedPageRunId] = useState<string | null>(null);
+  const [selectedPageRunId, setSelectedPageRunId] = useState<string | null>(
+    null,
+  );
   const [selectedPageUrl, setSelectedPageUrl] = useState<string | null>(null);
 
   const grouped = useMemo(() => {
@@ -101,7 +106,11 @@ export default function ScanDetailsPage() {
   const selectedPageFindings = useQuery(
     api.findings.listMyFindingsByScanRun,
     scanRunId && selectedPageRunId
-      ? { scanRunId, scanRunPageId: selectedPageRunId as Id<"scanRunPages">, limit: 500 }
+      ? {
+          scanRunId,
+          scanRunPageId: selectedPageRunId as Id<"scanRunPages">,
+          limit: 500,
+        }
       : "skip",
   );
 
@@ -145,7 +154,8 @@ export default function ScanDetailsPage() {
         id: "findings",
         header: "Findings",
         accessorKey: "findingCount",
-        cell: (row: PageRow) => (typeof row.findingCount === "number" ? row.findingCount : "—"),
+        cell: (row: PageRow) =>
+          typeof row.findingCount === "number" ? row.findingCount : "—",
       },
       {
         id: "updated",
@@ -169,7 +179,8 @@ export default function ScanDetailsPage() {
         accessorKey: "lastExtractLatencyMs",
         cell: (row: PageRow) => (
           <span className="text-xs">
-            q:{row.lastQueueWaitMs ?? 0}ms · ex:{row.lastExtractLatencyMs ?? 0}ms
+            q:{row.lastQueueWaitMs ?? 0}ms · ex:{row.lastExtractLatencyMs ?? 0}
+            ms
           </span>
         ),
       },
@@ -180,7 +191,9 @@ export default function ScanDetailsPage() {
         cell: (row: PageRow) =>
           row.errorMessage ? (
             <span className="text-destructive text-xs">
-              {row.terminalErrorCategory ? `[${row.terminalErrorCategory}] ` : ""}
+              {row.terminalErrorCategory
+                ? `[${row.terminalErrorCategory}] `
+                : ""}
               {row.errorMessage}
             </span>
           ) : (
@@ -194,7 +207,9 @@ export default function ScanDetailsPage() {
         cell: (row: PageRow) => (
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" asChild>
-              <Link href={`/admin/scans/${scanRunId}/pages/${row.id}`}>View</Link>
+              <Link href={`/admin/scans/${scanRunId}/pages/${row.id}`}>
+                View
+              </Link>
             </Button>
             <Button size="sm" variant="outline" asChild>
               <a href={row.url} target="_blank" rel="noopener noreferrer">
@@ -226,18 +241,25 @@ export default function ScanDetailsPage() {
 
   return (
     <section className="w-full space-y-4 p-4">
-      <div className="rounded-xl border border-border/60 bg-background p-4">
+      <div className="border-border/60 bg-background rounded-xl border p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">Scan run</p>
-            <h1 className="text-xl font-semibold">{scanRunId}</h1>
+            <p className="text-muted-foreground text-xs tracking-[0.2em] uppercase">
+              Scan run
+            </p>
+            <h1 className="truncate text-lg font-semibold sm:text-xl">
+              {scanRunId}
+            </h1>
             <p className="text-muted-foreground mt-1 text-sm">
-              Status: {scanRun?.status ?? "loading..."} · Profile: {scanRun?.profile ?? "wcag_2_2_aa"}
+              Status: {scanRun?.status ?? "loading..."} · Profile:{" "}
+              {scanRun?.profile ?? "wcag_2_2_aa"}
             </p>
             {typeof scanRun?.totalPages === "number" ? (
               <p className="text-muted-foreground mt-1 text-sm">
-                Page progress: {scanRun.completedPages ?? 0}/{scanRun.totalPages}
-                {typeof scanRun.failedPages === "number" && scanRun.failedPages > 0
+                Page progress: {scanRun.completedPages ?? 0}/
+                {scanRun.totalPages}
+                {typeof scanRun.failedPages === "number" &&
+                scanRun.failedPages > 0
                   ? ` (${scanRun.failedPages} failed)`
                   : ""}
               </p>
@@ -246,7 +268,9 @@ export default function ScanDetailsPage() {
           <div className="flex gap-2">
             {report ? (
               <Button variant="outline" asChild>
-                <Link href={`/admin/reports/${String(report._id)}`}>Open Report</Link>
+                <Link href={`/admin/reports/${String(report._id)}`}>
+                  Open Report
+                </Link>
               </Button>
             ) : null}
             <Button
@@ -255,7 +279,11 @@ export default function ScanDetailsPage() {
                   const newRunId = await rerunScan({ scanRunId });
                   setStatusMessage(`Re-run queued: ${String(newRunId)}`);
                 } catch (error) {
-                  setStatusMessage(error instanceof Error ? error.message : "Failed to rerun scan.");
+                  setStatusMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to rerun scan.",
+                  );
                 }
               }}
             >
@@ -269,9 +297,15 @@ export default function ScanDetailsPage() {
                   try {
                     setIsStopping(true);
                     const result = await cancelScanRun({ scanRunId });
-                    setStatusMessage(`Scan stop requested. Canceled ${result.canceledPages} page(s).`);
+                    setStatusMessage(
+                      `Scan stop requested. Canceled ${result.canceledPages} page(s).`,
+                    );
                   } catch (error) {
-                    setStatusMessage(error instanceof Error ? error.message : "Failed to stop scan.");
+                    setStatusMessage(
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to stop scan.",
+                    );
                   } finally {
                     setIsStopping(false);
                   }
@@ -293,7 +327,11 @@ export default function ScanDetailsPage() {
                   await deleteScanRun({ scanRunId });
                   router.push("/admin/scans");
                 } catch (error) {
-                  setStatusMessage(error instanceof Error ? error.message : "Failed to delete scan run.");
+                  setStatusMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to delete scan run.",
+                  );
                 } finally {
                   setIsDeleting(false);
                 }
@@ -307,14 +345,17 @@ export default function ScanDetailsPage() {
 
       <div className="grid gap-3 md:grid-cols-5">
         {Object.entries(grouped).map(([key, value]) => (
-          <div key={key} className="rounded-lg border border-border/60 bg-background p-3">
+          <div
+            key={key}
+            className="border-border/60 bg-background rounded-lg border p-3"
+          >
             <p className="text-muted-foreground text-xs uppercase">{key}</p>
             <p className="mt-1 text-2xl font-semibold">{value}</p>
           </div>
         ))}
       </div>
 
-      <div className="rounded-xl border border-border/60 bg-background p-4">
+      <div className="border-border/60 bg-background rounded-xl border p-4">
         <EntityList<PageRow>
           data={pageRows}
           columns={pageColumns}
@@ -333,10 +374,14 @@ export default function ScanDetailsPage() {
                 onClick={async () => {
                   try {
                     const queuedCount = await rerunSelectedPages({ scanRunId });
-                    setStatusMessage(`Queued ${queuedCount} lifecycle-eligible page rerun(s).`);
+                    setStatusMessage(
+                      `Queued ${queuedCount} lifecycle-eligible page rerun(s).`,
+                    );
                   } catch (error) {
                     setStatusMessage(
-                      error instanceof Error ? error.message : "Failed to rerun lifecycle-eligible pages.",
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to rerun lifecycle-eligible pages.",
                     );
                   }
                 }}
@@ -347,11 +392,18 @@ export default function ScanDetailsPage() {
                 variant="outline"
                 onClick={async () => {
                   try {
-                    const queuedCount = await rerunSelectedPages({ scanRunId, includeAllPages: true });
-                    setStatusMessage(`Queued ${queuedCount} page rerun(s) with full override.`);
+                    const queuedCount = await rerunSelectedPages({
+                      scanRunId,
+                      includeAllPages: true,
+                    });
+                    setStatusMessage(
+                      `Queued ${queuedCount} page rerun(s) with full override.`,
+                    );
                   } catch (error) {
                     setStatusMessage(
-                      error instanceof Error ? error.message : "Failed to rerun all pages.",
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to rerun all pages.",
                     );
                   }
                 }}
@@ -368,13 +420,19 @@ export default function ScanDetailsPage() {
                   try {
                     const queuedCount = await rerunSelectedPages({
                       scanRunId,
-                      pageRunIds: selectedItems.map((item) => item.id as Id<"scanRunPages">),
+                      pageRunIds: selectedItems.map(
+                        (item) => item.id as Id<"scanRunPages">,
+                      ),
                     });
-                    setStatusMessage(`Queued ${queuedCount} selected page rerun(s).`);
+                    setStatusMessage(
+                      `Queued ${queuedCount} selected page rerun(s).`,
+                    );
                     clearSelection();
                   } catch (error) {
                     setStatusMessage(
-                      error instanceof Error ? error.message : "Failed to rerun selected pages.",
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to rerun selected pages.",
                     );
                   }
                 }}
@@ -413,42 +471,97 @@ export default function ScanDetailsPage() {
           </DialogHeader>
           <div className="space-y-3">
             {(selectedPageFindings ?? []).map((finding) => (
-              <article key={String(finding._id)} className="space-y-2 rounded-lg border border-border/60 p-3">
+              <article
+                key={String(finding._id)}
+                className="border-border/60 space-y-2 rounded-lg border p-3"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium">{finding.title}</p>
-                  <Badge variant={finding.severity === "critical" || finding.severity === "serious" ? "destructive" : "outline"}>
+                  <Badge
+                    variant={
+                      finding.severity === "critical" ||
+                      finding.severity === "serious"
+                        ? "destructive"
+                        : "outline"
+                    }
+                  >
                     {finding.severity}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">{finding.status ?? "open"}</Badge>
                   {finding.evidenceHash ? (
-                    <span className="text-muted-foreground text-xs">evidence: {finding.evidenceHash.slice(0, 18)}…</span>
+                    <span className="text-muted-foreground text-xs">
+                      evidence: {finding.evidenceHash.slice(0, 18)}…
+                    </span>
                   ) : null}
                 </div>
                 <p className="text-muted-foreground text-sm">
                   Rule: {finding.ruleId}
                   {finding.target ? ` · Target: ${finding.target}` : ""}
                 </p>
-                {finding.description ? <p className="text-sm">{finding.description}</p> : null}
+                {finding.description ? (
+                  <p className="text-sm">{finding.description}</p>
+                ) : null}
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: finding._id, status: "in_progress" })}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void updateFindingStatus({
+                        findingId: finding._id,
+                        status: "in_progress",
+                      })
+                    }
+                  >
                     In Progress
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: finding._id, status: "resolved" })}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void updateFindingStatus({
+                        findingId: finding._id,
+                        status: "resolved",
+                      })
+                    }
+                  >
                     Resolve
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: finding._id, status: "verified_on_rescan" })}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void updateFindingStatus({
+                        findingId: finding._id,
+                        status: "verified_on_rescan",
+                      })
+                    }
+                  >
                     Verify
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => void updateFindingStatus({ findingId: finding._id, status: "regressed" })}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void updateFindingStatus({
+                        findingId: finding._id,
+                        status: "regressed",
+                      })
+                    }
+                  >
                     Regressed
                   </Button>
                   {actor?.userId ? (
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() => void assignFinding({ findingId: finding._id, assignee: actor.userId })}
+                      onClick={() =>
+                        void assignFinding({
+                          findingId: finding._id,
+                          assignee: actor.userId,
+                        })
+                      }
                     >
                       Assign Me
                     </Button>
@@ -467,7 +580,9 @@ export default function ScanDetailsPage() {
               </article>
             ))}
             {selectedPageFindings?.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No findings were recorded for this page.</p>
+              <p className="text-muted-foreground text-sm">
+                No findings were recorded for this page.
+              </p>
             ) : null}
           </div>
         </DialogContent>
@@ -475,4 +590,3 @@ export default function ScanDetailsPage() {
     </section>
   );
 }
-

@@ -10,6 +10,7 @@ import {
   query,
 } from "./_generated/server";
 import { nowMs, requireUserId } from "./helpers";
+import { discoverWebsiteUrls } from "./scanRunner";
 import {
   findingSeverityValidator,
   findingSourceValidator,
@@ -77,6 +78,8 @@ const computeEvidenceHash = (args: {
   ]
     .join("|")
     .toLowerCase();
+
+export { computeEvidenceHash };
 
 const deleteScanRunCascade = async (
   ctx: MutationCtx,
@@ -181,6 +184,7 @@ export const createScanRun = mutation({
   args: {
     assetId: v.id("assets"),
     profile: v.optional(wcagProfileValidator),
+    pageUrls: v.optional(v.array(v.string())),
   },
   returns: v.id("scanRuns"),
   handler: async (ctx, args) => {
@@ -237,7 +241,7 @@ export const createScanRun = mutation({
       const workflowId = await workflowStarter.start(
         ctx,
         websiteScanWorkflowRef,
-        { scanRunId },
+        { scanRunId, pageUrls: args.pageUrls },
       );
       await ctx.db.patch(scanRunId, {
         workflowId,
@@ -1555,5 +1559,117 @@ export const getScanSummary = query({
       manualReviewRequired: row.manualReviewRequired,
     })) satisfies FindingSummaryRow[];
     return computeSummary(findings);
+  },
+});
+
+export const discoverPages = mutation({
+  args: { assetId: v.id("assets") },
+  returns: v.array(
+    v.object({
+      _id: v.id("discoveredPages"),
+      _creationTime: v.number(),
+      assetId: v.id("assets"),
+      pageUrl: v.string(),
+      normalizedUrl: v.string(),
+      discoveredAt: v.number(),
+      lastScannedAt: v.optional(v.number()),
+      lastScanStatus: v.optional(scanRunPageStatusValidator),
+      lastFindingCount: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || asset.createdBy !== userId) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!asset.sourceUrl) {
+      throw new ConvexError("Asset has no source URL.");
+    }
+
+    const pageUrls = await discoverWebsiteUrls(asset.sourceUrl, 500);
+    if (pageUrls.length === 0) {
+      return [];
+    }
+
+    const now = nowMs();
+    const insertedPages: Array<{
+      _id: Id<"discoveredPages">;
+      _creationTime: number;
+      assetId: Id<"assets">;
+      pageUrl: string;
+      normalizedUrl: string;
+      discoveredAt: number;
+      lastScannedAt?: number;
+      lastScanStatus?:
+        | "queued"
+        | "running"
+        | "completed"
+        | "failed"
+        | "canceled";
+      lastFindingCount?: number;
+    }> = [];
+
+    for (const pageUrl of pageUrls) {
+      const existing = await ctx.db
+        .query("discoveredPages")
+        .withIndex("by_asset_normalizedUrl", (q) =>
+          q.eq("assetId", args.assetId).eq("normalizedUrl", pageUrl),
+        )
+        .first();
+
+      if (!existing) {
+        const pageId = await ctx.db.insert("discoveredPages", {
+          assetId: args.assetId,
+          pageUrl,
+          normalizedUrl: pageUrl,
+          discoveredAt: now,
+        });
+        insertedPages.push({
+          _id: pageId,
+          _creationTime: now,
+          assetId: args.assetId,
+          pageUrl,
+          normalizedUrl: pageUrl,
+          discoveredAt: now,
+        });
+      }
+    }
+
+    return insertedPages;
+  },
+});
+
+export const listDiscoveredPages = query({
+  args: {
+    assetId: v.id("assets"),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("discoveredPages"),
+      _creationTime: v.number(),
+      assetId: v.id("assets"),
+      pageUrl: v.string(),
+      normalizedUrl: v.string(),
+      discoveredAt: v.number(),
+      lastScannedAt: v.optional(v.number()),
+      lastScanStatus: v.optional(scanRunPageStatusValidator),
+      lastFindingCount: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || asset.createdBy !== userId) {
+      return [];
+    }
+    const limit = Math.max(1, Math.min(500, Number(args.limit ?? 100)));
+    const rows = await ctx.db
+      .query("discoveredPages")
+      .withIndex("by_asset_discoveredAt", (q) => q.eq("assetId", args.assetId))
+      .order("desc")
+      .take(limit);
+    return rows;
   },
 });

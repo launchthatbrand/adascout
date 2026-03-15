@@ -161,7 +161,7 @@ export function ListView<T extends Record<string, unknown>>({
   };
 
   return (
-    <div className="rounded-md border">
+    <div className="overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -175,10 +175,11 @@ export function ListView<T extends Record<string, unknown>>({
               <TableHead
                 key={column.id}
                 className={
-                  column.sortable && onSortChange
+                  (column.sortable && onSortChange
                     ? "cursor-pointer select-none"
-                    : ""
+                    : "") + (column.minWidth ? ` min-w-[${column.minWidth}]` : "")
                 }
+                style={column.minWidth ? { minWidth: column.minWidth } : undefined}
                 onClick={() => column.sortable && handleHeaderClick(column.id)}
               >
                 <div className="flex items-center gap-1">
@@ -240,7 +241,11 @@ export function ListView<T extends Record<string, unknown>>({
                 )}
 
                 {columns.map((column) => (
-                  <TableCell key={column.id}>
+                  <TableCell
+                    key={column.id}
+                    style={column.minWidth ? { minWidth: column.minWidth } : undefined}
+                    className={column.minWidth ? "whitespace-nowrap" : undefined}
+                  >
                     {renderCellValue(column, row)}
                   </TableCell>
                 ))}

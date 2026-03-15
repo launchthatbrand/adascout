@@ -1,17 +1,18 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+
 import {
   assetKindValidator,
   assetStatusValidator,
   findingSeverityValidator,
-  findingStatusValidator,
   findingSourceValidator,
+  findingStatusValidator,
+  reportLayoutValidator,
   scanRunModeValidator,
   scanRunPageStatusValidator,
   scanRunStatusValidator,
   wcagProfileValidator,
-  reportLayoutValidator,
 } from "./scanTypes";
 
 export default defineSchema({
@@ -40,6 +41,9 @@ export default defineSchema({
     filename: v.optional(v.string()),
     contentType: v.optional(v.string()),
     sizeBytes: v.optional(v.number()),
+    wpUsername: v.optional(v.string()),
+    wpAppPassword: v.optional(v.string()),
+    wpConnectedAt: v.optional(v.number()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -118,6 +122,18 @@ export default defineSchema({
     .index("by_leaseKey_holderId", ["leaseKey", "holderId"])
     .index("by_scanRun_createdAt", ["scanRunId", "createdAt"]),
 
+  discoveredPages: defineTable({
+    assetId: v.id("assets"),
+    pageUrl: v.string(),
+    normalizedUrl: v.string(),
+    discoveredAt: v.number(),
+    lastScannedAt: v.optional(v.number()),
+    lastScanStatus: v.optional(scanRunPageStatusValidator),
+    lastFindingCount: v.optional(v.number()),
+  })
+    .index("by_asset_discoveredAt", ["assetId", "discoveredAt"])
+    .index("by_asset_normalizedUrl", ["assetId", "normalizedUrl"]),
+
   findings: defineTable({
     assetId: v.id("assets"),
     scanRunId: v.id("scanRuns"),
@@ -155,7 +171,8 @@ export default defineSchema({
     .index("by_asset_severity", ["assetId", "severity"])
     .index("by_asset_status", ["assetId", "status"])
     .index("by_status_createdAt", ["status", "createdAt"])
-    .index("by_assignee_status", ["assignee", "status"]),
+    .index("by_assignee_status", ["assignee", "status"])
+    .index("by_evidenceHash_createdAt", ["evidenceHash", "createdAt"]),
 
   reports: defineTable({
     assetId: v.id("assets"),

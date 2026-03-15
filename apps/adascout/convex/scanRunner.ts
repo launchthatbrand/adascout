@@ -1,4 +1,5 @@
 "use node";
+
 /* eslint-disable @typescript-eslint/array-type */
 /* eslint-disable @typescript-eslint/no-base-to-string */
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -8,15 +9,15 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-condition */
 /* eslint-disable no-restricted-properties */
 /* eslint-disable turbo/no-undeclared-env-vars */
+import type { ComponentApi } from "@browserbasehq/convex-stagehand";
+import type { GenericActionCtx } from "convex/server";
+import { Stagehand } from "@browserbasehq/convex-stagehand";
+import { v } from "convex/values";
+import { z } from "zod";
 
 import type { Id } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import type { GenericActionCtx } from "convex/server";
-import { Stagehand } from "@browserbasehq/convex-stagehand";
-import type { ComponentApi } from "@browserbasehq/convex-stagehand";
-import { v } from "convex/values";
-import { z } from "zod";
 
 interface NormalizedFinding {
   source: "axe" | "ibm" | "pdf" | "stagehand";
@@ -32,7 +33,12 @@ interface NormalizedFinding {
   codeSnippet?: string;
   manualReviewRequired?: boolean;
   confidence?: number;
-  status?: "open" | "in_progress" | "resolved" | "verified_on_rescan" | "regressed";
+  status?:
+    | "open"
+    | "in_progress"
+    | "resolved"
+    | "verified_on_rescan"
+    | "regressed";
   resolvedAt?: number;
   verifiedAt?: number;
   assignee?: Id<"users">;
@@ -87,9 +93,14 @@ const SEVERITY_WEIGHT: Record<NormalizedFinding["severity"], number> = {
 
 const nowMs = () => Date.now();
 
-const sleep = async (ms: number) => await new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = async (ms: number) =>
+  await new Promise((resolve) => setTimeout(resolve, ms));
 
-const withTimeout = async <T>(label: string, ms: number, fn: () => Promise<T>): Promise<T> => {
+export const withTimeout = async <T>(
+  label: string,
+  ms: number,
+  fn: () => Promise<T>,
+): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -107,7 +118,11 @@ const withTimeout = async <T>(label: string, ms: number, fn: () => Promise<T>): 
   }
 };
 
-const withRetry = async <T>(label: string, fn: () => Promise<T>, attempts = 2): Promise<T> => {
+export const withRetry = async <T>(
+  label: string,
+  fn: () => Promise<T>,
+  attempts = 2,
+): Promise<T> => {
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -120,7 +135,8 @@ const withRetry = async <T>(label: string, fn: () => Promise<T>, attempts = 2): 
     }
   }
   throw new Error(
-    `${label} failed after ${attempts} attempt(s): ${lastError instanceof Error ? lastError.message : String(lastError)
+    `${label} failed after ${attempts} attempt(s): ${
+      lastError instanceof Error ? lastError.message : String(lastError)
     }`,
   );
 };
@@ -153,7 +169,9 @@ const computeSummary = (findings: NormalizedFinding[]) => {
   return summary;
 };
 
-const severityFromAxeImpact = (impact: unknown): NormalizedFinding["severity"] => {
+const severityFromAxeImpact = (
+  impact: unknown,
+): NormalizedFinding["severity"] => {
   switch (impact) {
     case "critical":
       return "critical";
@@ -168,7 +186,9 @@ const severityFromAxeImpact = (impact: unknown): NormalizedFinding["severity"] =
   }
 };
 
-const normalizeStagehandSeverity = (value: unknown): NormalizedFinding["severity"] => {
+const normalizeStagehandSeverity = (
+  value: unknown,
+): NormalizedFinding["severity"] => {
   const normalized = String(value ?? "")
     .trim()
     .toLowerCase();
@@ -186,7 +206,10 @@ const DEFAULT_MAX_CONCURRENT_SESSIONS = 1;
 const DEFAULT_PAGES_PER_SESSION = 10;
 const DEFAULT_LEASE_TTL_MS = 120_000;
 
-const parsePositiveIntEnv = (value: string | undefined, fallback: number): number => {
+const parsePositiveIntEnv = (
+  value: string | undefined,
+  fallback: number,
+): number => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return parsed;
@@ -210,10 +233,13 @@ const computeEvidenceHash = (args: {
     .toLowerCase();
 
 const categorizeScanError = (error: unknown): string => {
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
   if (message.includes("timed out")) return "timeout";
   if (message.includes("429")) return "rate_limit";
-  if (message.includes("401") || message.includes("unauthorized")) return "auth";
+  if (message.includes("401") || message.includes("unauthorized"))
+    return "auth";
   if (message.includes("invalid provider")) return "provider";
   if (message.includes("fetch")) return "network";
   if (message.includes("schema")) return "schema";
@@ -223,7 +249,10 @@ const categorizeScanError = (error: unknown): string => {
 const isStagehandSessionLimitError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
-  return normalized.includes("stagehand api error (429)") || normalized.includes("max concurrent sessions limit");
+  return (
+    normalized.includes("stagehand api error (429)") ||
+    normalized.includes("max concurrent sessions limit")
+  );
 };
 
 const getSessionRuntimeConfig = (): {
@@ -233,17 +262,30 @@ const getSessionRuntimeConfig = (): {
   leaseTtlMs: number;
   leaseAcquireTimeoutMs: number;
 } => {
-  const planTier = (process.env.SCANNER_PLAN_TIER ?? "free").toLowerCase() === "paid" ? "paid" : "free";
+  const planTier =
+    (process.env.SCANNER_PLAN_TIER ?? "free").toLowerCase() === "paid"
+      ? "paid"
+      : "free";
   const configuredConcurrent = parsePositiveIntEnv(
     process.env.SCANNER_MAX_CONCURRENT_SESSIONS,
     DEFAULT_MAX_CONCURRENT_SESSIONS,
   );
   return {
     planTier,
-    maxConcurrentSessions: planTier === "free" ? 1 : Math.max(1, configuredConcurrent),
-    pagesPerSession: parsePositiveIntEnv(process.env.SCANNER_PAGES_PER_SESSION, DEFAULT_PAGES_PER_SESSION),
-    leaseTtlMs: parsePositiveIntEnv(process.env.SCANNER_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS),
-    leaseAcquireTimeoutMs: parsePositiveIntEnv(process.env.SCANNER_LEASE_ACQUIRE_TIMEOUT_MS, 45_000),
+    maxConcurrentSessions:
+      planTier === "free" ? 1 : Math.max(1, configuredConcurrent),
+    pagesPerSession: parsePositiveIntEnv(
+      process.env.SCANNER_PAGES_PER_SESSION,
+      DEFAULT_PAGES_PER_SESSION,
+    ),
+    leaseTtlMs: parsePositiveIntEnv(
+      process.env.SCANNER_LEASE_TTL_MS,
+      DEFAULT_LEASE_TTL_MS,
+    ),
+    leaseAcquireTimeoutMs: parsePositiveIntEnv(
+      process.env.SCANNER_LEASE_ACQUIRE_TIMEOUT_MS,
+      45_000,
+    ),
   };
 };
 
@@ -279,13 +321,22 @@ const startSharedSessionWithRetry = async (
 };
 
 const getStagehandConfigForRuntime = (): StagehandRuntimeConfig | null => {
-  const stagehandComponent = (components as unknown as { stagehand?: unknown }).stagehand;
+  const stagehandComponent = (components as unknown as { stagehand?: unknown })
+    .stagehand;
   const browserbaseApiKey = process.env.BROWSERBASE_API_KEY;
   const browserbaseProjectId = process.env.BROWSERBASE_PROJECT_ID;
   const geminiApiKey =
-    process.env.GEMINI_API_KEY ?? process.env.GEMENI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  const stagehandModelName = process.env.STAGEHAND_MODEL_NAME ?? "google/gemini-2.5-flash";
-  if (!stagehandComponent || !browserbaseApiKey || !browserbaseProjectId || !geminiApiKey) {
+    process.env.GEMINI_API_KEY ??
+    process.env.GEMENI_API_KEY ??
+    process.env.GOOGLE_API_KEY;
+  const stagehandModelName =
+    process.env.STAGEHAND_MODEL_NAME ?? "google/gemini-2.5-flash";
+  if (
+    !stagehandComponent ||
+    !browserbaseApiKey ||
+    !browserbaseProjectId ||
+    !geminiApiKey
+  ) {
     return null;
   }
   return {
@@ -299,7 +350,10 @@ const getStagehandConfigForRuntime = (): StagehandRuntimeConfig | null => {
   };
 };
 
-const normalizeStagehandExtractedFindings = (extracted: unknown, url: string): NormalizedFinding[] => {
+const normalizeStagehandExtractedFindings = (
+  extracted: unknown,
+  url: string,
+): NormalizedFinding[] => {
   const rawItems = Array.isArray((extracted as { findings?: unknown }).findings)
     ? ((extracted as { findings?: unknown[] }).findings ?? [])
     : Array.isArray(extracted)
@@ -349,24 +403,37 @@ const normalizeStagehandExtractedFindings = (extracted: unknown, url: string): N
       lastStateChangeAt: nowMs(),
       capturedAt: nowMs(),
       selectorSnapshot: target,
-      domSnippet: typeof record.description === "string" ? record.description : undefined,
-      pageTitle: typeof record.pageTitle === "string" ? record.pageTitle : undefined,
+      domSnippet:
+        typeof record.description === "string" ? record.description : undefined,
+      pageTitle:
+        typeof record.pageTitle === "string" ? record.pageTitle : undefined,
       evidenceHash: computeEvidenceHash({
         source: "stagehand",
         ruleId,
         target,
         pageUrl: url,
-        codeSnippet: typeof record.description === "string" ? record.description : undefined,
+        codeSnippet:
+          typeof record.description === "string"
+            ? record.description
+            : undefined,
       }),
     };
   });
 
-  return findings.sort((a, b) => SEVERITY_WEIGHT[b.severity] - SEVERITY_WEIGHT[a.severity]);
+  return findings.sort(
+    (a, b) => SEVERITY_WEIGHT[b.severity] - SEVERITY_WEIGHT[a.severity],
+  );
 };
 
-const buildStagehandErrorFinding = (message: string, url: string, stagehandModelName: string): NormalizedFinding => {
+const buildStagehandErrorFinding = (
+  message: string,
+  url: string,
+  stagehandModelName: string,
+): NormalizedFinding => {
   const invalidProvider = message.toLowerCase().includes("invalid provider");
-  const unauthorized = message.includes("(401)") || message.toLowerCase().includes("401 unauthorized");
+  const unauthorized =
+    message.includes("(401)") ||
+    message.toLowerCase().includes("401 unauthorized");
   return {
     source: "stagehand",
     severity: "info",
@@ -406,9 +473,14 @@ const stagehandFindingSchema = z.object({
   ),
 });
 
-const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFinding[] => {
+const _normalizeAxeFindings = (
+  input: unknown,
+  pageUrl: string,
+): NormalizedFinding[] => {
   const payload = input as { violations?: Array<Record<string, unknown>> };
-  const violations = Array.isArray(payload?.violations) ? payload.violations : [];
+  const violations = Array.isArray(payload?.violations)
+    ? payload.violations
+    : [];
   const findings: NormalizedFinding[] = [];
   for (const violation of violations) {
     const nodes = Array.isArray(violation.nodes) ? violation.nodes : [];
@@ -418,9 +490,13 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
         severity: severityFromAxeImpact(violation.impact),
         ruleId: String(violation.id ?? "axe.rule"),
         title: String(violation.help ?? violation.id ?? "Accessibility issue"),
-        description: typeof violation.description === "string" ? violation.description : undefined,
+        description:
+          typeof violation.description === "string"
+            ? violation.description
+            : undefined,
         help: typeof violation.help === "string" ? violation.help : undefined,
-        helpUrl: typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
+        helpUrl:
+          typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
         pageUrl,
         status: "open",
         lastStateChangeAt: nowMs(),
@@ -439,15 +515,20 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
         severity: severityFromAxeImpact(violation.impact),
         ruleId: String(violation.id ?? "axe.rule"),
         title: String(violation.help ?? violation.id ?? "Accessibility issue"),
-        description: typeof violation.description === "string" ? violation.description : undefined,
+        description:
+          typeof violation.description === "string"
+            ? violation.description
+            : undefined,
         help: typeof violation.help === "string" ? violation.help : undefined,
-        helpUrl: typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
+        helpUrl:
+          typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
         target: Array.isArray((node as { target?: unknown[] }).target)
           ? String((node as { target?: unknown[] }).target?.[0] ?? "")
           : undefined,
-        codeSnippet: typeof (node as { html?: unknown }).html === "string"
-          ? String((node as { html?: unknown }).html)
-          : undefined,
+        codeSnippet:
+          typeof (node as { html?: unknown }).html === "string"
+            ? String((node as { html?: unknown }).html)
+            : undefined,
         pageUrl,
         confidence: 0.95,
         status: "open",
@@ -456,9 +537,10 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
         selectorSnapshot: Array.isArray((node as { target?: unknown[] }).target)
           ? String((node as { target?: unknown[] }).target?.[0] ?? "")
           : undefined,
-        domSnippet: typeof (node as { html?: unknown }).html === "string"
-          ? String((node as { html?: unknown }).html)
-          : undefined,
+        domSnippet:
+          typeof (node as { html?: unknown }).html === "string"
+            ? String((node as { html?: unknown }).html)
+            : undefined,
         evidenceHash: computeEvidenceHash({
           source: "axe",
           ruleId: String(violation.id ?? "axe.rule"),
@@ -466,9 +548,10 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
             ? String((node as { target?: unknown[] }).target?.[0] ?? "")
             : undefined,
           pageUrl,
-          codeSnippet: typeof (node as { html?: unknown }).html === "string"
-            ? String((node as { html?: unknown }).html)
-            : undefined,
+          codeSnippet:
+            typeof (node as { html?: unknown }).html === "string"
+              ? String((node as { html?: unknown }).html)
+              : undefined,
         }),
       });
     }
@@ -476,7 +559,10 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
   return findings;
 };
 
-const _normalizeIbmFindings = (input: unknown, pageUrl: string): NormalizedFinding[] => {
+const _normalizeIbmFindings = (
+  input: unknown,
+  pageUrl: string,
+): NormalizedFinding[] => {
   const output: NormalizedFinding[] = [];
   const maybeReport = (input as { report?: unknown })?.report ?? input;
   const results = (maybeReport as { results?: unknown[] })?.results;
@@ -488,32 +574,40 @@ const _normalizeIbmFindings = (input: unknown, pageUrl: string): NormalizedFindi
     const rawPath = (result as { path?: unknown[] }).path;
     const nodes: unknown[] = Array.isArray(rawPath) ? rawPath : [];
     const firstTarget = nodes[0];
-    const level = String((result as { level?: unknown }).level ?? "").toLowerCase();
-    const severity: NormalizedFinding["severity"] =
-      level.includes("violation") ? "serious" : level.includes("recommendation") ? "minor" : "info";
+    const level = String(
+      (result as { level?: unknown }).level ?? "",
+    ).toLowerCase();
+    const severity: NormalizedFinding["severity"] = level.includes("violation")
+      ? "serious"
+      : level.includes("recommendation")
+        ? "minor"
+        : "info";
     output.push({
       source: "ibm",
       severity,
       ruleId: String((result as { ruleId?: unknown }).ruleId ?? "ibm.rule"),
       title: String(
         (result as { message?: unknown }).message ??
-        (result as { ruleId?: unknown }).ruleId ??
-        "Accessibility finding",
+          (result as { ruleId?: unknown }).ruleId ??
+          "Accessibility finding",
       ),
-      description: typeof (result as { reasonId?: unknown }).reasonId === "string"
-        ? String((result as { reasonId?: unknown }).reasonId)
-        : undefined,
+      description:
+        typeof (result as { reasonId?: unknown }).reasonId === "string"
+          ? String((result as { reasonId?: unknown }).reasonId)
+          : undefined,
       target: typeof firstTarget === "string" ? String(firstTarget) : undefined,
       pageUrl,
       confidence: 0.85,
       status: "open",
       lastStateChangeAt: nowMs(),
       capturedAt: nowMs(),
-      selectorSnapshot: typeof firstTarget === "string" ? String(firstTarget) : undefined,
+      selectorSnapshot:
+        typeof firstTarget === "string" ? String(firstTarget) : undefined,
       evidenceHash: computeEvidenceHash({
         source: "ibm",
         ruleId: String((result as { ruleId?: unknown }).ruleId ?? "ibm.rule"),
-        target: typeof firstTarget === "string" ? String(firstTarget) : undefined,
+        target:
+          typeof firstTarget === "string" ? String(firstTarget) : undefined,
         pageUrl,
       }),
     });
@@ -521,7 +615,10 @@ const _normalizeIbmFindings = (input: unknown, pageUrl: string): NormalizedFindi
   return output;
 };
 
-const scanWebsite = async (ctx: GenericActionCtx<any>, url: string): Promise<NormalizedFinding[]> => {
+const scanWebsite = async (
+  ctx: GenericActionCtx<any>,
+  url: string,
+): Promise<NormalizedFinding[]> => {
   const startedAt = nowMs();
   logScanPhase({ event: "analysis_start", pageUrl: url, engine: "stagehand" });
   const runtime = getStagehandConfigForRuntime();
@@ -543,14 +640,17 @@ const scanWebsite = async (ctx: GenericActionCtx<any>, url: string): Promise<Nor
 
   try {
     logScanPhase({ event: "analysis_stagehand_extract_start", pageUrl: url });
-    const extracted = await withTimeout("Stagehand accessibility extract", 90_000, async () =>
-      stagehand.extract(ctx, {
-        url,
-        instruction:
-          "Audit this page for WCAG 2.2 AA issues. Return concise findings with severity and selector.",
-        schema: stagehandFindingSchema,
-        options: { waitUntil: "domcontentloaded", timeout: 45_000 },
-      }),
+    const extracted = await withTimeout(
+      "Stagehand accessibility extract",
+      90_000,
+      async () =>
+        stagehand.extract(ctx, {
+          url,
+          instruction:
+            "Audit this page for WCAG 2.2 AA issues. Return concise findings with severity and selector.",
+          schema: stagehandFindingSchema,
+          options: { waitUntil: "domcontentloaded", timeout: 45_000 },
+        }),
     );
     const sorted = normalizeStagehandExtractedFindings(extracted, url);
     logScanPhase({
@@ -562,11 +662,17 @@ const scanWebsite = async (ctx: GenericActionCtx<any>, url: string): Promise<Nor
     return sorted;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logScanPhase({ event: "analysis_stagehand_extract_failed", pageUrl: url, errorMessage: message });
-    const finding = buildStagehandErrorFinding(message, url, stagehandModelName);
-    return [
-      finding,
-    ];
+    logScanPhase({
+      event: "analysis_stagehand_extract_failed",
+      pageUrl: url,
+      errorMessage: message,
+    });
+    const finding = buildStagehandErrorFinding(
+      message,
+      url,
+      stagehandModelName,
+    );
+    return [finding];
   }
 };
 
@@ -578,17 +684,24 @@ const scanWebsiteUsingExistingSession = async (
   url: string,
 ): Promise<NormalizedFinding[]> => {
   const startedAt = nowMs();
-  logScanPhase({ event: "analysis_stagehand_extract_start", pageUrl: url, sessionMode: "shared" });
+  logScanPhase({
+    event: "analysis_stagehand_extract_start",
+    pageUrl: url,
+    sessionMode: "shared",
+  });
   try {
-    const extracted = await withTimeout("Stagehand session extract", 90_000, async () =>
-      stagehand.extract(ctx, {
-        sessionId,
-        url,
-        instruction:
-          "Audit this page for WCAG 2.2 AA issues. Return concise findings with severity and selector.",
-        schema: stagehandFindingSchema,
-        options: { waitUntil: "domcontentloaded", timeout: 45_000 },
-      }),
+    const extracted = await withTimeout(
+      "Stagehand session extract",
+      90_000,
+      async () =>
+        stagehand.extract(ctx, {
+          sessionId,
+          url,
+          instruction:
+            "Audit this page for WCAG 2.2 AA issues. Return concise findings with severity and selector.",
+          schema: stagehandFindingSchema,
+          options: { waitUntil: "domcontentloaded", timeout: 45_000 },
+        }),
     );
     const sorted = normalizeStagehandExtractedFindings(extracted, url);
     logScanPhase({
@@ -611,7 +724,7 @@ const scanWebsiteUsingExistingSession = async (
   }
 };
 
-const normalizeUrlForCrawl = (rawUrl: string): string | null => {
+export const normalizeUrlForCrawl = (rawUrl: string): string | null => {
   try {
     const url = new URL(rawUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
@@ -654,7 +767,7 @@ const STATIC_ASSET_EXTENSIONS = new Set([
   ".pdf",
 ]);
 
-const isLikelyHtmlPageUrl = (normalizedUrl: string): boolean => {
+export const isLikelyHtmlPageUrl = (normalizedUrl: string): boolean => {
   try {
     const parsed = new URL(normalizedUrl);
     const pathname = parsed.pathname.toLowerCase();
@@ -681,17 +794,29 @@ const isLikelyHtmlPageUrl = (normalizedUrl: string): boolean => {
   }
 };
 
-const extractXmlLocs = (xml: string): string[] => {
+export const extractXmlLocs = (xml: string): string[] => {
   const matches = Array.from(xml.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi));
-  return matches.map((match) => match[1] ?? "").filter((value) => value.length > 0);
+  return matches
+    .map((match) => match[1] ?? "")
+    .filter((value) => value.length > 0);
 };
 
-const extractInternalLinks = (html: string, origin: string): string[] => {
-  const hrefMatches = Array.from(html.matchAll(/href\s*=\s*["']([^"']+)["']/gi));
+export const extractInternalLinks = (
+  html: string,
+  origin: string,
+): string[] => {
+  const hrefMatches = Array.from(
+    html.matchAll(/href\s*=\s*["']([^"']+)["']/gi),
+  );
   const urls: string[] = [];
   for (const match of hrefMatches) {
     const href = match[1] ?? "";
-    if (!href || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("#")) {
+    if (
+      !href ||
+      href.startsWith("mailto:") ||
+      href.startsWith("tel:") ||
+      href.startsWith("#")
+    ) {
       continue;
     }
     try {
@@ -706,7 +831,7 @@ const extractInternalLinks = (html: string, origin: string): string[] => {
   return urls;
 };
 
-const discoverWebsiteUrls = async (
+export const discoverWebsiteUrls = async (
   seedUrl: string,
   maxUrls: number,
 ): Promise<Array<string>> => {
@@ -719,8 +844,15 @@ const discoverWebsiteUrls = async (
   // Sitemap-first discovery.
   const sitemapCandidates = [`${origin}/sitemap.xml`];
   try {
-    const robotsResponse = await withTimeout("robots.txt fetch", 10_000, async () =>
-      withRetry("robots.txt fetch", async () => fetch(`${origin}/robots.txt`), 1),
+    const robotsResponse = await withTimeout(
+      "robots.txt fetch",
+      10_000,
+      async () =>
+        withRetry(
+          "robots.txt fetch",
+          async () => fetch(`${origin}/robots.txt`),
+          1,
+        ),
     );
     if (robotsResponse.ok) {
       const robots = await robotsResponse.text();
@@ -789,7 +921,9 @@ const discoverWebsiteUrls = async (
   return Array.from(discovered).filter(isLikelyHtmlPageUrl).slice(0, maxUrls);
 };
 
-const scanPdfFromFileUrl = async (fileUrl: string): Promise<NormalizedFinding[]> => {
+const scanPdfFromFileUrl = async (
+  fileUrl: string,
+): Promise<NormalizedFinding[]> => {
   const response = await withTimeout("PDF fetch", 30_000, async () =>
     withRetry("PDF fetch", async () => fetch(fileUrl)),
   );
@@ -797,7 +931,9 @@ const scanPdfFromFileUrl = async (fileUrl: string): Promise<NormalizedFinding[]>
     throw new Error(`Failed to load PDF bytes (${response.status}).`);
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
-  const pdfjs = (await import("pdfjs-dist")) as { getDocument: (args: { data: Uint8Array }) => any };
+  const pdfjs = (await import("pdfjs-dist")) as {
+    getDocument: (args: { data: Uint8Array }) => any;
+  };
   const loadingTask = pdfjs.getDocument({ data: bytes });
   const document = await loadingTask.promise;
 
@@ -833,7 +969,8 @@ const scanPdfFromFileUrl = async (fileUrl: string): Promise<NormalizedFinding[]>
       severity: "info",
       ruleId: "pdf.scan.completed",
       title: "PDF parsed successfully",
-      description: "No immediate text-layer red flags were detected automatically.",
+      description:
+        "No immediate text-layer red flags were detected automatically.",
       manualReviewRequired: true,
       confidence: 0.4,
       status: "open",
@@ -852,15 +989,21 @@ export const processScanRun = internalAction({
   args: { scanRunId: v.id("scanRuns") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const isCanceledBeforeStart = await ctx.runQuery(internal.scans.isScanRunCanceled, {
-      scanRunId: args.scanRunId,
-    });
+    const isCanceledBeforeStart = await ctx.runQuery(
+      internal.scans.isScanRunCanceled,
+      {
+        scanRunId: args.scanRunId,
+      },
+    );
     if (isCanceledBeforeStart) {
       return null;
     }
-    const processing = await ctx.runQuery(internal.scans.getScanRunForProcessing, {
-      scanRunId: args.scanRunId,
-    });
+    const processing = await ctx.runQuery(
+      internal.scans.getScanRunForProcessing,
+      {
+        scanRunId: args.scanRunId,
+      },
+    );
     if (!processing) {
       return null;
     }
@@ -895,9 +1038,12 @@ export const processScanRun = internalAction({
         });
       }
 
-      const canceledBeforePersist = await ctx.runQuery(internal.scans.isScanRunCanceled, {
-        scanRunId: scanRun._id,
-      });
+      const canceledBeforePersist = await ctx.runQuery(
+        internal.scans.isScanRunCanceled,
+        {
+          scanRunId: scanRun._id,
+        },
+      );
       if (canceledBeforePersist) {
         return null;
       }
@@ -965,6 +1111,7 @@ export const discoverAndQueueSitePages = internalAction({
   args: {
     scanRunId: v.id("scanRuns"),
     maxUrls: v.optional(v.number()),
+    pageUrls: v.optional(v.array(v.string())),
   },
   returns: v.object({
     totalDiscovered: v.number(),
@@ -976,11 +1123,15 @@ export const discoverAndQueueSitePages = internalAction({
         event: "discover_start",
         scanRunId: args.scanRunId,
         maxUrls: args.maxUrls ?? 100,
+        pageUrlsFilter: args.pageUrls?.length ?? 0,
       }),
     );
-    const processing = (await ctx.runQuery(internal.scans.getScanRunForProcessing, {
-      scanRunId: args.scanRunId,
-    })) as ScanRunProcessingSnapshot | null;
+    const processing = (await ctx.runQuery(
+      internal.scans.getScanRunForProcessing,
+      {
+        scanRunId: args.scanRunId,
+      },
+    )) as ScanRunProcessingSnapshot | null;
     if (!processing) {
       throw new Error("Scan run not found.");
     }
@@ -989,8 +1140,13 @@ export const discoverAndQueueSitePages = internalAction({
       throw new Error("Asset is not a website URL.");
     }
 
-    const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
-    const pageUrls = await discoverWebsiteUrls(asset.normalizedUrl, maxUrls);
+    let pageUrls: string[];
+    if (args.pageUrls && args.pageUrls.length > 0) {
+      pageUrls = args.pageUrls;
+    } else {
+      const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
+      pageUrls = await discoverWebsiteUrls(asset.normalizedUrl, maxUrls);
+    }
     if (pageUrls.length === 0) {
       throw new Error("No crawlable URLs discovered.");
     }
@@ -1034,11 +1190,14 @@ export const scanQueuedPage = internalAction({
     if (!processing) return null;
     const { scanRun, pageRun } = processing;
     const queueWaitMs = Math.max(0, nowMs() - pageRun.createdAt);
-    const claimed = await ctx.runMutation(internal.scans.claimScanRunPageForExecution, {
-      scanRunId: scanRun._id,
-      pageRunId: pageRun._id,
-      queueWaitMs,
-    });
+    const claimed = await ctx.runMutation(
+      internal.scans.claimScanRunPageForExecution,
+      {
+        scanRunId: scanRun._id,
+        pageRunId: pageRun._id,
+        queueWaitMs,
+      },
+    );
     if (!claimed) {
       console.info(
         JSON.stringify({
@@ -1120,7 +1279,14 @@ export const processQueuedPagesWithSessionLease = internalAction({
     leaseAcquired: v.boolean(),
     claimedPages: v.number(),
   }),
-  handler: async (ctx, args): Promise<{ processedPages: number; leaseAcquired: boolean; claimedPages: number }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    processedPages: number;
+    leaseAcquired: boolean;
+    claimedPages: number;
+  }> => {
     const isCanceled = await ctx.runQuery(internal.scans.isScanRunCanceled, {
       scanRunId: args.scanRunId,
     });
@@ -1130,22 +1296,26 @@ export const processQueuedPagesWithSessionLease = internalAction({
     const runtime = getSessionRuntimeConfig();
     const leaseKey = args.leaseKey ?? DEFAULT_LEASE_KEY;
     const workerId =
-      args.workerId ?? `${String(args.scanRunId)}:${nowMs()}:${Math.random().toString(36).slice(2, 10)}`;
+      args.workerId ??
+      `${String(args.scanRunId)}:${nowMs()}:${Math.random().toString(36).slice(2, 10)}`;
     const leaseNow = nowMs();
     const leaseAcquireStartedAt = nowMs();
     await ctx.runMutation(internal.scans.cleanupExpiredSessionLeases, {
       leaseKey,
       now: leaseNow,
     });
-    const leaseAcquired = await ctx.runMutation(internal.scans.acquireSessionLease, {
-      leaseKey,
-      holderId: workerId,
-      scanRunId: args.scanRunId,
-      maxConcurrent: runtime.maxConcurrentSessions,
-      ttlMs: runtime.leaseTtlMs,
-      now: leaseNow,
-      planTier: runtime.planTier,
-    });
+    const leaseAcquired = await ctx.runMutation(
+      internal.scans.acquireSessionLease,
+      {
+        leaseKey,
+        holderId: workerId,
+        scanRunId: args.scanRunId,
+        maxConcurrent: runtime.maxConcurrentSessions,
+        ttlMs: runtime.leaseTtlMs,
+        now: leaseNow,
+        planTier: runtime.planTier,
+      },
+    );
     logScanPhase({
       event: "lease_acquire_result",
       scanRunId: args.scanRunId,
@@ -1172,11 +1342,17 @@ export const processQueuedPagesWithSessionLease = internalAction({
     let sessionId: string | null = null;
 
     try {
-      const limit = Math.max(1, Math.min(50, Number(args.pageLimit ?? runtime.pagesPerSession)));
-      const claimed = await ctx.runMutation(internal.scans.claimQueuedScanRunPages, {
-        scanRunId: args.scanRunId,
-        limit,
-      });
+      const limit = Math.max(
+        1,
+        Math.min(50, Number(args.pageLimit ?? runtime.pagesPerSession)),
+      );
+      const claimed = await ctx.runMutation(
+        internal.scans.claimQueuedScanRunPages,
+        {
+          scanRunId: args.scanRunId,
+          limit,
+        },
+      );
       claimedPages = claimed.length;
       if (claimed.length === 0) {
         return { processedPages: 0, leaseAcquired: true, claimedPages: 0 };
@@ -1185,7 +1361,10 @@ export const processQueuedPagesWithSessionLease = internalAction({
       const runtimeConfig = getStagehandConfigForRuntime();
       if (!runtimeConfig) {
         for (const pageRunId of claimed) {
-          await ctx.runAction(internal.scanRunner.scanQueuedPage, { scanRunId: args.scanRunId, pageRunId });
+          await ctx.runAction(internal.scanRunner.scanQueuedPage, {
+            scanRunId: args.scanRunId,
+            pageRunId,
+          });
           processedPages += 1;
         }
         return { processedPages, leaseAcquired: true, claimedPages };
@@ -1193,25 +1372,34 @@ export const processQueuedPagesWithSessionLease = internalAction({
       const { stagehand, stagehandModelName } = runtimeConfig;
 
       for (const pageRunId of claimed) {
-        const canceledMidRun = await ctx.runQuery(internal.scans.isScanRunCanceled, {
-          scanRunId: args.scanRunId,
-        });
+        const canceledMidRun = await ctx.runQuery(
+          internal.scans.isScanRunCanceled,
+          {
+            scanRunId: args.scanRunId,
+          },
+        );
         if (canceledMidRun) {
           break;
         }
-        const processing = (await ctx.runQuery(internal.scans.getScanRunPageForProcessing, {
-          scanRunId: args.scanRunId,
-          pageRunId,
-        })) as ScanRunPageProcessingSnapshot | null;
+        const processing = (await ctx.runQuery(
+          internal.scans.getScanRunPageForProcessing,
+          {
+            scanRunId: args.scanRunId,
+            pageRunId,
+          },
+        )) as ScanRunPageProcessingSnapshot | null;
         if (!processing) continue;
         const { scanRun, pageRun } = processing;
         const queueWaitMs = Math.max(0, nowMs() - pageRun.createdAt);
 
-        const claimedForExecution = await ctx.runMutation(internal.scans.claimScanRunPageForExecution, {
-          scanRunId: scanRun._id,
-          pageRunId: pageRun._id,
-          queueWaitMs,
-        });
+        const claimedForExecution = await ctx.runMutation(
+          internal.scans.claimScanRunPageForExecution,
+          {
+            scanRunId: scanRun._id,
+            pageRunId: pageRun._id,
+            queueWaitMs,
+          },
+        );
         if (!claimedForExecution) continue;
 
         const pageStartedAt = nowMs();
@@ -1225,7 +1413,11 @@ export const processQueuedPagesWithSessionLease = internalAction({
 
         try {
           if (!sessionId) {
-            sessionId = await startSharedSessionWithRetry(ctx, stagehand, pageRun.pageUrl);
+            sessionId = await startSharedSessionWithRetry(
+              ctx,
+              stagehand,
+              pageRun.pageUrl,
+            );
           }
 
           const findings = await scanWebsiteUsingExistingSession(
@@ -1256,7 +1448,8 @@ export const processQueuedPagesWithSessionLease = internalAction({
             sessionMode: "shared",
           });
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
           if (isStagehandSessionLimitError(error)) {
             await ctx.runMutation(internal.scans.preparePageRerun, {
               scanRunId: scanRun._id,
@@ -1301,7 +1494,9 @@ export const processQueuedPagesWithSessionLease = internalAction({
     } finally {
       const runtimeConfig = getStagehandConfigForRuntime();
       if (sessionId && runtimeConfig) {
-        await runtimeConfig.stagehand.endSession(ctx, { sessionId }).catch(() => undefined);
+        await runtimeConfig.stagehand
+          .endSession(ctx, { sessionId })
+          .catch(() => undefined);
       }
       await ctx.runMutation(internal.scans.releaseSessionLease, {
         leaseKey,
@@ -1383,8 +1578,11 @@ export const e2eWebsiteScanSmoke = internalAction({
 
     for (const pageUrl of sampled) {
       try {
-        const response = await withTimeout("E2E page reachability", 10_000, async () =>
-          withRetry("E2E page fetch", async () => fetch(pageUrl), 1),
+        const response = await withTimeout(
+          "E2E page reachability",
+          10_000,
+          async () =>
+            withRetry("E2E page fetch", async () => fetch(pageUrl), 1),
         );
         pages.push({
           url: pageUrl,
@@ -1413,4 +1611,3 @@ export const e2eWebsiteScanSmoke = internalAction({
     };
   },
 });
-
