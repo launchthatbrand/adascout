@@ -42,24 +42,6 @@ export default function AssetsPage() {
   const generateUploadUrl = useMutation(api.assets.generateAssetUploadUrl);
   const createScanRun = useMutation(api.scans.createScanRun);
 
-  const assetIds = useMemo(() => (assets ?? []).map((a) => a._id), [assets]);
-  const discoveredPagesQueries = useMemo(() => {
-    return (assetIds ?? []).map((assetId) => ({
-      assetId,
-      data: useQuery(api.scans.listDiscoveredPages, { assetId }),
-    }));
-  }, [assetIds]);
-
-  const discoveredPagesByAssetId = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const query of discoveredPagesQueries) {
-      if (query.data) {
-        map.set(String(query.assetId), query.data.length);
-      }
-    }
-    return map;
-  }, [discoveredPagesQueries]);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
@@ -92,9 +74,6 @@ export default function AssetsPage() {
     () =>
       (assets ?? []).map((asset) => {
         const latest = latestByAsset.get(String(asset._id));
-        const discoveredPagesCount = discoveredPagesByAssetId.get(
-          String(asset._id),
-        );
         return {
           id: String(asset._id),
           kind: asset.kind,
@@ -112,10 +91,10 @@ export default function AssetsPage() {
           createdAt: asset.createdAt,
           latestScanRunId: latest?.id,
           latestScanStatus: latest?.status,
-          discoveredPagesCount,
+          discoveredPagesCount: undefined,
         };
       }),
-    [assets, latestByAsset, discoveredPagesByAssetId],
+    [assets, latestByAsset],
   );
 
   const columns = useMemo<ColumnDefinition<AssetRow>[]>(
@@ -129,7 +108,7 @@ export default function AssetsPage() {
           <div className="space-y-1">
             <Link
               href={`/admin/assets/${row.id}`}
-              className="font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline underline-offset-4"
+              className="font-medium text-indigo-600 underline underline-offset-4 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
             >
               {row.title}
             </Link>
@@ -145,7 +124,9 @@ export default function AssetsPage() {
         accessorKey: "source",
         minWidth: "250px",
         cell: (row: AssetRow) => (
-          <div className="text-sm break-all max-w-[300px] truncate">{row.source}</div>
+          <div className="max-w-[300px] truncate text-sm break-all">
+            {row.source}
+          </div>
         ),
       },
       {
@@ -170,7 +151,7 @@ export default function AssetsPage() {
         cell: (row: AssetRow) =>
           row.latestScanRunId ? (
             <Link
-              className="text-sm text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline underline-offset-4"
+              className="text-sm text-indigo-600 underline underline-offset-4 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
               href={`/admin/scans/${row.latestScanRunId}`}
             >
               {row.latestScanStatus ?? "unknown"}
