@@ -120,6 +120,8 @@ export const listMyAssets = query({
       createdAt: v.number(),
       updatedAt: v.number(),
       fileUrl: v.union(v.string(), v.null()),
+      mondayConnectedAt: v.optional(v.number()),
+      mondayBoardId: v.optional(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -157,6 +159,8 @@ export const listMyAssets = query({
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         fileUrl,
+        mondayConnectedAt: row.mondayConnectedAt,
+        mondayBoardId: row.mondayBoardId,
       });
     }
     return result;
@@ -180,6 +184,8 @@ export const getMyAsset = query({
       createdAt: v.number(),
       updatedAt: v.number(),
       fileUrl: v.union(v.string(), v.null()),
+      mondayConnectedAt: v.optional(v.number()),
+      mondayBoardId: v.optional(v.string()),
     }),
     v.null(),
   ),
@@ -206,6 +212,8 @@ export const getMyAsset = query({
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       fileUrl,
+      mondayConnectedAt: row.mondayConnectedAt,
+      mondayBoardId: row.mondayBoardId,
     };
   },
 });
