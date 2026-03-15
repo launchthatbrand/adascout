@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalAction, mutation } from "./_generated/server";
 import { requireUserId } from "./helpers";
 
 const WP_CREDENTIALS_ENCRYPTION_KEY = "adascout-wp-key-v1";
@@ -28,19 +28,16 @@ function decrypt(encoded: string): string {
   return result;
 }
 
-export const connectWordPress = internalMutation({
+export const connectWordPress = mutation({
   args: {
     assetId: v.id("assets"),
     wpUsername: v.string(),
     wpAppPassword: v.string(),
   },
   returns: v.object({ success: v.boolean(), error: v.optional(v.string()) }),
-  handler: async (
-    ctx: MutationCtx,
-    args: { assetId: string; wpUsername: string; wpAppPassword: string },
-  ): Promise<{ success: boolean; error?: string }> => {
+  handler: async (ctx, args): Promise<{ success: boolean; error?: string }> => {
     const userId = await requireUserId(ctx);
-    const asset = await ctx.db.get(args.assetId as any);
+    const asset = await ctx.db.get(args.assetId);
     if (!asset || asset.createdBy !== userId) {
       return { success: false, error: "Asset not found" };
     }
@@ -50,7 +47,7 @@ export const connectWordPress = internalMutation({
     }
 
     const wpUrl = asset.normalizedUrl.replace(/\/$/, "");
-    const apiUrl = `${wpUrl}/wp-json/adascout/validate`;
+    const apiUrl = `${wpUrl}/wp-json/wp/v2/users/me`;
 
     const credentials = Buffer.from(
       `${args.wpUsername}:${args.wpAppPassword}`,
@@ -58,12 +55,10 @@ export const connectWordPress = internalMutation({
 
     try {
       const response = await fetch(apiUrl, {
-        method: "POST",
+        method: "GET",
         headers: {
           Authorization: `Basic ${credentials}`,
-          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username: args.wpUsername }),
       });
 
       if (!response.ok) {
@@ -73,12 +68,7 @@ export const connectWordPress = internalMutation({
         };
       }
 
-      const data = await response.json();
-      if (!data.success) {
-        return { success: false, error: "Invalid credentials" };
-      }
-
-      await ctx.db.patch(args.assetId as any, {
+      await ctx.db.patch(args.assetId, {
         wpUsername: args.wpUsername,
         wpAppPassword: encrypt(args.wpAppPassword),
         wpConnectedAt: Date.now(),
@@ -95,17 +85,17 @@ export const connectWordPress = internalMutation({
   },
 });
 
-export const disconnectWordPress = internalMutation({
+export const disconnectWordPress = mutation({
   args: { assetId: v.id("assets") },
   returns: v.object({ success: v.boolean() }),
-  handler: async (ctx: MutationCtx, args: { assetId: string }) => {
+  handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
-    const asset = await ctx.db.get(args.assetId as any);
+    const asset = await ctx.db.get(args.assetId);
     if (!asset || asset.createdBy !== userId) {
       return { success: false };
     }
 
-    await ctx.db.patch(args.assetId as any, {
+    await ctx.db.patch(args.assetId, {
       wpUsername: undefined,
       wpAppPassword: undefined,
       wpConnectedAt: undefined,
@@ -116,7 +106,7 @@ export const disconnectWordPress = internalMutation({
   },
 });
 
-export const applyRemediationFix = internalAction({
+export const applyRemediationFix = mutation({
   args: {
     assetId: v.id("assets"),
     findingId: v.id("findings"),
@@ -125,12 +115,9 @@ export const applyRemediationFix = internalAction({
     success: v.boolean(),
     error: v.optional(v.string()),
   }),
-  handler: async (
-    ctx: MutationCtx,
-    args: { assetId: string; findingId: string },
-  ): Promise<{ success: boolean; error?: string }> => {
+  handler: async (ctx, args): Promise<{ success: boolean; error?: string }> => {
     const userId = await requireUserId(ctx);
-    const asset = await ctx.db.get(args.assetId as any);
+    const asset = await ctx.db.get(args.assetId);
     if (!asset || asset.createdBy !== userId) {
       return { success: false, error: "Asset not found" };
     }
@@ -139,7 +126,7 @@ export const applyRemediationFix = internalAction({
       return { success: false, error: "WordPress not connected" };
     }
 
-    const finding = await ctx.db.get(args.findingId as any);
+    const finding = await ctx.db.get(args.findingId);
     if (!finding) {
       return { success: false, error: "Finding not found" };
     }
@@ -159,9 +146,16 @@ export const applyRemediationFix = internalAction({
       };
     }
 
-    const suggestedFix = generateFixSuggestion(finding.ruleId, finding.target);
+    const suggestedFix = generateFixSuggestion(
+      finding.ruleId,
+      finding.target ?? "",
+    );
 
     try {
+      if (!wpUrl) {
+        return { success: false, error: "WordPress URL not found" };
+      }
+
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
@@ -169,8 +163,8 @@ export const applyRemediationFix = internalAction({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          post_id: extractPostId(finding.pageUrl, wpUrl),
-          element_id: extractElementId(finding.target),
+          post_id: extractPostId(finding.pageUrl ?? "", wpUrl),
+          element_id: extractElementId(finding.target ?? ""),
           fix_type: fixType,
           fix_value: suggestedFix,
         }),
