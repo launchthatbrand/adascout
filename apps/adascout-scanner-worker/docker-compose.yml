@@ -1,0 +1,54 @@
+services:
+  browserless:
+    image: ghcr.io/browserless/chromium:v2.36.0
+    restart: unless-stopped
+    environment:
+      TOKEN: ${BROWSERLESS_TOKEN:-local-browserless-token}
+      MAX_CONCURRENT_SESSIONS: "4"
+      CONNECTION_TIMEOUT: "60000"
+      EXIT_ON_HEALTH_FAILURE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  adascout-scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      browserless:
+        condition: service_healthy
+    environment:
+      CONVEX_URL: ${CONVEX_URL}
+      ADA_SCANNER_WORKER_TOKEN: ${ADA_SCANNER_WORKER_TOKEN}
+      BROWSERLESS_CDP_URL: ws://browserless:3000?token=${BROWSERLESS_TOKEN:-local-browserless-token}
+      SCANNER_MAX_CONCURRENCY: ${SCANNER_MAX_CONCURRENCY:-2}
+      SCANNER_IDLE_SLEEP_MS: ${SCANNER_IDLE_SLEEP_MS:-1500}
+      SCANNER_PAGE_TIMEOUT_MS: ${SCANNER_PAGE_TIMEOUT_MS:-45000}
+      SCANNER_SETTLE_MS: ${SCANNER_SETTLE_MS:-1000}
+      SCANNER_HEALTH_PORT: ${SCANNER_HEALTH_PORT:-8081}
+      SCANNER_PROXY_MODE: ${SCANNER_PROXY_MODE:-off}
+      SCANNER_PROXY_PROTOCOL: ${SCANNER_PROXY_PROTOCOL:-http}
+      SCANNER_PROXY_ENDPOINTS: ${SCANNER_PROXY_ENDPOINTS:-}
+      SCANNER_PROXY_USERNAME: ${SCANNER_PROXY_USERNAME:-}
+      SCANNER_PROXY_PASSWORD: ${SCANNER_PROXY_PASSWORD:-}
+      SCANNER_FINGERPRINT_ENABLED: ${SCANNER_FINGERPRINT_ENABLED:-true}
+      SCANNER_FINGERPRINT_BROWSERS: ${SCANNER_FINGERPRINT_BROWSERS:-chrome}
+      SCANNER_FINGERPRINT_OPERATING_SYSTEMS: ${SCANNER_FINGERPRINT_OPERATING_SYSTEMS:-linux}
+      SCANNER_FINGERPRINT_DEVICES: ${SCANNER_FINGERPRINT_DEVICES:-desktop}
+      SCANNER_FINGERPRINT_LOCALE: ${SCANNER_FINGERPRINT_LOCALE:-en-US}
+      SCANNER_FINGERPRINT_TIMEZONE: ${SCANNER_FINGERPRINT_TIMEZONE:-America/New_York}
+    ports:
+      - "${SCANNER_HEALTH_PORT:-8081}:${SCANNER_HEALTH_PORT:-8081}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:${SCANNER_HEALTH_PORT:-8081}/healthz').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\"",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5

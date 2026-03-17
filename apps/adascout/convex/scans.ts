@@ -1,15 +1,17 @@
 import { ConvexError, v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import {
+  action,
   internalMutation,
   internalQuery,
   mutation,
   query,
 } from "./_generated/server";
-import { nowMs, requireUserId } from "./helpers";
+import { normalizeHttpUrl, nowMs, requireUserId } from "./helpers";
 import { discoverWebsiteUrls } from "./scanRunner";
 import {
   findingSeverityValidator,
@@ -19,6 +21,7 @@ import {
   scanRunPageStatusValidator,
   scanRunStatusValidator,
   scanSummaryValidator,
+  urlAssetScopeValidator,
   wcagProfileValidator,
 } from "./scanTypes";
 import { workflow } from "./workflow";
@@ -68,16 +71,38 @@ const computeEvidenceHash = (args: {
   target?: string;
   pageUrl?: string;
   codeSnippet?: string;
-}) =>
-  [
-    args.source,
-    args.ruleId,
-    args.target ?? "",
-    args.pageUrl ?? "",
-    args.codeSnippet ?? "",
-  ]
-    .join("|")
-    .toLowerCase();
+}) => {
+  const normalizeForHash = (value: string | undefined): string =>
+    String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  const normalizePageUrlForHash = (value: string | undefined): string => {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    try {
+      const parsed = new URL(raw);
+      parsed.hash = "";
+      parsed.pathname =
+        parsed.pathname === "/"
+          ? "/"
+          : parsed.pathname.replace(/\/+$/, "") || "/";
+      return parsed.toString().toLowerCase();
+    } catch {
+      return normalizeForHash(raw);
+    }
+  };
+  const normalizedTarget = normalizeForHash(args.target);
+  const normalizedPageUrl = normalizePageUrlForHash(args.pageUrl);
+  const normalizedRuleId = normalizeForHash(args.ruleId);
+  const normalizedSource = normalizeForHash(args.source);
+  return [
+    normalizedSource,
+    normalizedRuleId,
+    normalizedTarget,
+    normalizedPageUrl,
+  ].join("|");
+};
 
 export { computeEvidenceHash };
 
@@ -226,7 +251,19 @@ export const createScanRun = mutation({
     }
 
     const now = nowMs();
+    const assetUrlScope = (asset as { urlScope?: "single_page" | "website" })
+      .urlScope;
     const mode = asset.kind === "url" ? "website_pages" : "single_asset";
+    const singlePageSeedUrl =
+      asset.kind === "url" &&
+      assetUrlScope === "single_page" &&
+      (asset.normalizedUrl ?? asset.sourceUrl)
+        ? [normalizeHttpUrl((asset.normalizedUrl ?? asset.sourceUrl) as string)]
+        : undefined;
+    const workflowPageUrls =
+      args.pageUrls && args.pageUrls.length > 0
+        ? args.pageUrls
+        : singlePageSeedUrl;
     const scanRunId = await ctx.db.insert("scanRuns", {
       assetId: args.assetId,
       profile: args.profile ?? "wcag_2_2_aa",
@@ -241,7 +278,7 @@ export const createScanRun = mutation({
       const workflowId = await workflowStarter.start(
         ctx,
         websiteScanWorkflowRef,
-        { scanRunId, pageUrls: args.pageUrls },
+        { scanRunId, pageUrls: workflowPageUrls },
       );
       await ctx.db.patch(scanRunId, {
         workflowId,
@@ -270,7 +307,15 @@ export const rerunScan = mutation({
     if (!asset || asset.createdBy !== userId) {
       throw new ConvexError("Asset not found.");
     }
+    const assetUrlScope = (asset as { urlScope?: "single_page" | "website" })
+      .urlScope;
     const mode = asset.kind === "url" ? "website_pages" : "single_asset";
+    const workflowPageUrls =
+      asset.kind === "url" &&
+      assetUrlScope === "single_page" &&
+      (asset.normalizedUrl ?? asset.sourceUrl)
+        ? [normalizeHttpUrl((asset.normalizedUrl ?? asset.sourceUrl) as string)]
+        : undefined;
     const scanRunId = await ctx.db.insert("scanRuns", {
       assetId: previous.assetId,
       profile: previous.profile,
@@ -285,7 +330,7 @@ export const rerunScan = mutation({
       const workflowId = await workflowStarter.start(
         ctx,
         websiteScanWorkflowRef,
-        { scanRunId },
+        { scanRunId, pageUrls: workflowPageUrls },
       );
       await ctx.db.patch(scanRunId, {
         workflowId,
@@ -642,6 +687,8 @@ export const listMyScanRunPages = query({
       lastExtractLatencyMs: v.optional(v.number()),
       lastErrorCategory: v.optional(v.string()),
       terminalErrorCategory: v.optional(v.string()),
+      pageScreenshotStorageId: v.optional(v.id("_storage")),
+      pageScreenshotCapturedAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     }),
@@ -692,6 +739,8 @@ export const listMyScanRunPagesByAsset = query({
       lastExtractLatencyMs: v.optional(v.number()),
       lastErrorCategory: v.optional(v.string()),
       terminalErrorCategory: v.optional(v.string()),
+      pageScreenshotStorageId: v.optional(v.id("_storage")),
+      pageScreenshotCapturedAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     }),
@@ -730,6 +779,8 @@ export const listMyScanRunPagesByAsset = query({
       lastExtractLatencyMs?: number;
       lastErrorCategory?: string;
       terminalErrorCategory?: string;
+      pageScreenshotStorageId?: Id<"_storage">;
+      pageScreenshotCapturedAt?: number;
       createdAt: number;
       updatedAt: number;
     };
@@ -745,8 +796,44 @@ export const listMyScanRunPagesByAsset = query({
         .take(limit);
       allPages.push(...(pages as PageRow[]));
     }
-
-    return allPages.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
+    const statusRank = (status: PageRow["status"]): number => {
+      switch (status) {
+        case "completed":
+          return 5;
+        case "running":
+          return 4;
+        case "queued":
+          return 3;
+        case "failed":
+          return 2;
+        case "canceled":
+          return 1;
+        default:
+          return 0;
+      }
+    };
+    const latestByUrl = new Map<string, PageRow>();
+    for (const page of allPages) {
+      const key = page.normalizedUrl || page.pageUrl;
+      const current = latestByUrl.get(key);
+      if (!current) {
+        latestByUrl.set(key, page);
+        continue;
+      }
+      if (page.updatedAt > current.updatedAt) {
+        latestByUrl.set(key, page);
+        continue;
+      }
+      if (
+        page.updatedAt === current.updatedAt &&
+        statusRank(page.status) > statusRank(current.status)
+      ) {
+        latestByUrl.set(key, page);
+      }
+    }
+    return Array.from(latestByUrl.values())
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, limit);
   },
 });
 
@@ -775,6 +862,8 @@ export const getMyScanRunPage = query({
       lastExtractLatencyMs: v.optional(v.number()),
       lastErrorCategory: v.optional(v.string()),
       terminalErrorCategory: v.optional(v.string()),
+      pageScreenshotStorageId: v.optional(v.id("_storage")),
+      pageScreenshotCapturedAt: v.optional(v.number()),
       createdAt: v.number(),
       updatedAt: v.number(),
     }),
@@ -791,6 +880,25 @@ export const getMyScanRunPage = query({
       return null;
     }
     return page;
+  },
+});
+
+export const getMyScanRunPageScreenshotUrl = query({
+  args: {
+    pageId: v.id("scanRunPages"),
+  },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const page = await ctx.db.get(args.pageId);
+    if (!page || !page.pageScreenshotStorageId) {
+      return null;
+    }
+    const scanRun = await ctx.db.get(page.scanRunId);
+    if (!scanRun || scanRun.createdBy !== userId) {
+      return null;
+    }
+    return await ctx.storage.getUrl(page.pageScreenshotStorageId);
   },
 });
 
@@ -1168,6 +1276,8 @@ export const completeScanRunPage = internalMutation({
     pageRunId: v.id("scanRunPages"),
     findingCount: v.number(),
     extractLatencyMs: v.optional(v.number()),
+    pageScreenshotStorageId: v.optional(v.id("_storage")),
+    pageScreenshotCapturedAt: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -1179,6 +1289,10 @@ export const completeScanRunPage = internalMutation({
       completedAt: now,
       findingCount: args.findingCount,
       lastExtractLatencyMs: args.extractLatencyMs,
+      pageScreenshotStorageId:
+        args.pageScreenshotStorageId ?? page.pageScreenshotStorageId,
+      pageScreenshotCapturedAt:
+        args.pageScreenshotCapturedAt ?? page.pageScreenshotCapturedAt,
       errorMessage: undefined,
       updatedAt: now,
     });
@@ -1288,6 +1402,13 @@ export const replaceFindingsForRun = internalMutation({
         evidenceHash: v.optional(v.string()),
         domSnippet: v.optional(v.string()),
         selectorSnapshot: v.optional(v.string()),
+        highlightId: v.optional(v.number()),
+        bboxX: v.optional(v.number()),
+        bboxY: v.optional(v.number()),
+        bboxWidth: v.optional(v.number()),
+        bboxHeight: v.optional(v.number()),
+        screenshotViewportWidth: v.optional(v.number()),
+        screenshotViewportHeight: v.optional(v.number()),
         pageTitle: v.optional(v.string()),
         capturedAt: v.optional(v.number()),
         screenshotStorageId: v.optional(v.id("_storage")),
@@ -1362,6 +1483,13 @@ export const replaceFindingsForPage = internalMutation({
         evidenceHash: v.optional(v.string()),
         domSnippet: v.optional(v.string()),
         selectorSnapshot: v.optional(v.string()),
+        highlightId: v.optional(v.number()),
+        bboxX: v.optional(v.number()),
+        bboxY: v.optional(v.number()),
+        bboxWidth: v.optional(v.number()),
+        bboxHeight: v.optional(v.number()),
+        screenshotViewportWidth: v.optional(v.number()),
+        screenshotViewportHeight: v.optional(v.number()),
         pageTitle: v.optional(v.string()),
         capturedAt: v.optional(v.number()),
         screenshotStorageId: v.optional(v.id("_storage")),
@@ -1587,8 +1715,53 @@ export const discoverPages = mutation({
       throw new ConvexError("Asset has no source URL.");
     }
 
-    const pageUrls = await discoverWebsiteUrls(asset.sourceUrl, 500);
+    console.info(
+      JSON.stringify({
+        component: "adascout-scan",
+        event: "discover_pages_start",
+        assetId: args.assetId,
+        sourceUrl: asset.sourceUrl,
+        userId,
+      }),
+    );
+
+    const startedAt = nowMs();
+    let pageUrls: string[] = [];
+    const assetUrlScope = (asset as { urlScope?: "single_page" | "website" })
+      .urlScope;
+    try {
+      if (assetUrlScope === "single_page") {
+        pageUrls = [normalizeHttpUrl(asset.sourceUrl)];
+      } else {
+        pageUrls = await discoverWebsiteUrls(asset.sourceUrl, 500, {
+          useTimeouts: false,
+        });
+      }
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          component: "adascout-scan",
+          event: "discover_pages_error",
+          assetId: args.assetId,
+          sourceUrl: asset.sourceUrl,
+          durationMs: nowMs() - startedAt,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      throw error;
+    }
     if (pageUrls.length === 0) {
+      console.info(
+        JSON.stringify({
+          component: "adascout-scan",
+          event: "discover_pages_complete",
+          assetId: args.assetId,
+          sourceUrl: asset.sourceUrl,
+          discoveredCount: 0,
+          insertedCount: 0,
+          durationMs: nowMs() - startedAt,
+        }),
+      );
       return [];
     }
 
@@ -1636,6 +1809,18 @@ export const discoverPages = mutation({
       }
     }
 
+    console.info(
+      JSON.stringify({
+        component: "adascout-scan",
+        event: "discover_pages_complete",
+        assetId: args.assetId,
+        sourceUrl: asset.sourceUrl,
+        discoveredCount: pageUrls.length,
+        insertedCount: insertedPages.length,
+        durationMs: nowMs() - startedAt,
+      }),
+    );
+
     return insertedPages;
   },
 });
@@ -1669,7 +1854,605 @@ export const listDiscoveredPages = query({
       .query("discoveredPages")
       .withIndex("by_asset_discoveredAt", (q) => q.eq("assetId", args.assetId))
       .order("desc")
-      .take(limit);
-    return rows;
+      .take(limit * 3);
+    const deduped = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      const key = row.normalizedUrl || row.pageUrl;
+      if (!deduped.has(key)) {
+        deduped.set(key, row);
+      }
+      if (deduped.size >= limit) break;
+    }
+    return Array.from(deduped.values());
+  },
+});
+
+export const detectPages = action({
+  args: { assetId: v.id("assets") },
+  returns: v.object({
+    discoveredCount: v.number(),
+    insertedCount: v.number(),
+    totalKnownPages: v.number(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    discoveredCount: number;
+    insertedCount: number;
+    totalKnownPages: number;
+  }> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
+      throw new ConvexError("Unauthorized");
+    }
+
+    const asset = await ctx.runQuery(internal.scans.getAssetForDetection, {
+      assetId: args.assetId,
+      userId,
+    });
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    if (!asset.sourceUrl) {
+      throw new ConvexError("Asset has no source URL.");
+    }
+
+    const startedAt = nowMs();
+    console.info(
+      JSON.stringify({
+        component: "adascout-scan",
+        event: "detect_pages_start",
+        assetId: args.assetId,
+        sourceUrl: asset.sourceUrl,
+        userId,
+      }),
+    );
+
+    const scopedPageUrls =
+      asset.urlScope === "single_page"
+        ? [normalizeHttpUrl(asset.normalizedUrl ?? asset.sourceUrl)]
+        : await discoverWebsiteUrls(asset.sourceUrl, 500, {
+            sitemapOnly: true,
+          });
+    const result = (await ctx.runMutation(internal.scans.upsertDiscoveredPages, {
+      assetId: args.assetId,
+      pageUrls: scopedPageUrls,
+    })) as { insertedCount: number; totalKnownPages: number };
+
+    console.info(
+      JSON.stringify({
+        component: "adascout-scan",
+        event: "detect_pages_complete",
+        assetId: args.assetId,
+        sourceUrl: asset.sourceUrl,
+        discoveredCount: scopedPageUrls.length,
+        insertedCount: result.insertedCount,
+        totalKnownPages: result.totalKnownPages,
+        durationMs: nowMs() - startedAt,
+      }),
+    );
+
+    return {
+      discoveredCount: scopedPageUrls.length,
+      insertedCount: result.insertedCount,
+      totalKnownPages: result.totalKnownPages,
+    };
+  },
+});
+
+export const normalizeDiscoveredPagesForAsset = mutation({
+  args: { assetId: v.id("assets") },
+  returns: v.object({
+    removedCount: v.number(),
+    remainingCount: v.number(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ removedCount: number; remainingCount: number }> => {
+    const userId = await requireUserId(ctx);
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || asset.createdBy !== userId) {
+      throw new ConvexError("Asset not found.");
+    }
+    return await ctx.runMutation(internal.scans.backfillDiscoveredPageUniqueness, {
+      assetId: args.assetId,
+    });
+  },
+});
+
+export const normalizeDiscoveredPagesForAssetByToken = action({
+  args: {
+    workerToken: v.string(),
+    assetId: v.id("assets"),
+  },
+  returns: v.object({
+    removedCount: v.number(),
+    remainingCount: v.number(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ removedCount: number; remainingCount: number }> => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    return (await ctx.runMutation(internal.scans.backfillDiscoveredPageUniqueness, {
+      assetId: args.assetId,
+    })) as { removedCount: number; remainingCount: number };
+  },
+});
+
+export const getAssetForDetection = internalQuery({
+  args: {
+    assetId: v.id("assets"),
+    userId: v.id("users"),
+  },
+  returns: v.union(
+    v.object({
+      _id: v.id("assets"),
+      sourceUrl: v.optional(v.string()),
+      normalizedUrl: v.optional(v.string()),
+      urlScope: v.optional(urlAssetScopeValidator),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || asset.createdBy !== args.userId) {
+      return null;
+    }
+    return {
+      _id: asset._id,
+      sourceUrl: asset.sourceUrl,
+      normalizedUrl: asset.normalizedUrl,
+      urlScope: (asset as { urlScope?: "single_page" | "website" }).urlScope,
+    };
+  },
+});
+
+export const upsertDiscoveredPages = internalMutation({
+  args: {
+    assetId: v.id("assets"),
+    pageUrls: v.array(v.string()),
+  },
+  returns: v.object({
+    insertedCount: v.number(),
+    totalKnownPages: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const normalizePageUrl = (raw: string): string => {
+      try {
+        return normalizeHttpUrl(raw);
+      } catch {
+        return raw.trim();
+      }
+    };
+    const now = nowMs();
+    const existingRows = await ctx.db
+      .query("discoveredPages")
+      .withIndex("by_asset_discoveredAt", (q) => q.eq("assetId", args.assetId))
+      .collect();
+    const existingUrls = new Set(
+      existingRows.map((row) => normalizePageUrl(row.normalizedUrl)),
+    );
+    let insertedCount = 0;
+
+    for (const pageUrl of args.pageUrls) {
+      const normalizedPageUrl = normalizePageUrl(pageUrl);
+      if (existingUrls.has(normalizedPageUrl)) continue;
+      await ctx.db.insert("discoveredPages", {
+        assetId: args.assetId,
+        pageUrl: normalizedPageUrl,
+        normalizedUrl: normalizedPageUrl,
+        discoveredAt: now,
+      });
+      existingUrls.add(normalizedPageUrl);
+      insertedCount += 1;
+    }
+
+    return {
+      insertedCount,
+      totalKnownPages: existingUrls.size,
+    };
+  },
+});
+
+const getScannerWorkerToken = (): string | null => {
+  const envValue = (
+    globalThis as { process?: { env?: Record<string, string | undefined> } }
+  ).process?.env?.ADA_SCANNER_WORKER_TOKEN;
+  if (!envValue || envValue.trim().length === 0) return null;
+  return envValue.trim();
+};
+
+const assertScannerWorkerAuthorized = (providedToken: string) => {
+  const expectedToken = getScannerWorkerToken();
+  if (!expectedToken) {
+    throw new ConvexError("Scanner worker token is not configured.");
+  }
+  if (providedToken !== expectedToken) {
+    throw new ConvexError("Unauthorized scanner worker.");
+  }
+};
+
+export const listRunningWebsiteScanRunsForWorker = internalQuery({
+  args: {},
+  returns: v.array(v.id("scanRuns")),
+  handler: async (ctx) => {
+    const queuedRows = await ctx.db
+      .query("scanRuns")
+      .withIndex("by_status_createdAt", (q) => q.eq("status", "queued"))
+      .order("desc")
+      .take(200);
+    const runningRows = await ctx.db
+      .query("scanRuns")
+      .withIndex("by_status_createdAt", (q) => q.eq("status", "running"))
+      .order("desc")
+      .take(200);
+    const rows = [...queuedRows, ...runningRows];
+    return rows
+      .filter((row) => row.mode === "website_pages")
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((row) => row._id);
+  },
+});
+
+export const claimNextPageForExternalScanner = action({
+  args: {
+    workerToken: v.string(),
+    scanRunId: v.optional(v.id("scanRuns")),
+  },
+  returns: v.union(
+    v.object({
+      scanRunId: v.id("scanRuns"),
+      pageRunId: v.id("scanRunPages"),
+      assetId: v.id("assets"),
+      pageUrl: v.string(),
+      queueWaitMs: v.number(),
+    }),
+    v.null(),
+  ),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    scanRunId: Id<"scanRuns">;
+    pageRunId: Id<"scanRunPages">;
+    assetId: Id<"assets">;
+    pageUrl: string;
+    queueWaitMs: number;
+  } | null> => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    const candidateScanRunIds: Array<Id<"scanRuns">> = args.scanRunId
+      ? [args.scanRunId]
+      : ((await ctx.runQuery(
+          internal.scans.listRunningWebsiteScanRunsForWorker,
+          {},
+        )) as Array<Id<"scanRuns">>);
+    for (const scanRunId of candidateScanRunIds) {
+      const pageIds = (await ctx.runMutation(internal.scans.claimQueuedScanRunPages, {
+        scanRunId,
+        limit: 1,
+      })) as Array<Id<"scanRunPages">>;
+      const pageRunId: Id<"scanRunPages"> | undefined = pageIds[0];
+      if (!pageRunId) continue;
+      const processing = (await ctx.runQuery(
+        internal.scans.getScanRunPageForProcessing,
+        {
+          scanRunId,
+          pageRunId,
+        },
+      )) as
+        | {
+            scanRun: { assetId: Id<"assets"> };
+            pageRun: { pageUrl: string; createdAt: number };
+          }
+        | null;
+      if (!processing) continue;
+      const queueWaitMs = Math.max(0, nowMs() - processing.pageRun.createdAt);
+      const claimed = await ctx.runMutation(
+        internal.scans.claimScanRunPageForExecution,
+        {
+          scanRunId,
+          pageRunId,
+          queueWaitMs,
+        },
+      );
+      if (!claimed) continue;
+      return {
+        scanRunId,
+        pageRunId,
+        assetId: processing.scanRun.assetId,
+        pageUrl: processing.pageRun.pageUrl,
+        queueWaitMs,
+      };
+    }
+    return null;
+  },
+});
+
+export const createExternalPageScreenshotUploadUrl = action({
+  args: {
+    workerToken: v.string(),
+  },
+  returns: v.object({
+    uploadUrl: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    const uploadUrl = await ctx.storage.generateUploadUrl();
+    return { uploadUrl };
+  },
+});
+
+const externalScannerFindingValidator = v.object({
+  source: findingSourceValidator,
+  severity: findingSeverityValidator,
+  ruleId: v.string(),
+  title: v.string(),
+  description: v.optional(v.string()),
+  help: v.optional(v.string()),
+  helpUrl: v.optional(v.string()),
+  target: v.optional(v.string()),
+  pageUrl: v.optional(v.string()),
+  pageNumber: v.optional(v.number()),
+  codeSnippet: v.optional(v.string()),
+  manualReviewRequired: v.optional(v.boolean()),
+  confidence: v.optional(v.number()),
+  status: v.optional(findingStatusValidator),
+  resolvedAt: v.optional(v.number()),
+  verifiedAt: v.optional(v.number()),
+  assignee: v.optional(v.id("users")),
+  dueAt: v.optional(v.number()),
+  resolutionNotes: v.optional(v.string()),
+  lastStateChangeAt: v.optional(v.number()),
+  evidenceHash: v.optional(v.string()),
+  domSnippet: v.optional(v.string()),
+  selectorSnapshot: v.optional(v.string()),
+  highlightId: v.optional(v.number()),
+  bboxX: v.optional(v.number()),
+  bboxY: v.optional(v.number()),
+  bboxWidth: v.optional(v.number()),
+  bboxHeight: v.optional(v.number()),
+  screenshotViewportWidth: v.optional(v.number()),
+  screenshotViewportHeight: v.optional(v.number()),
+  pageTitle: v.optional(v.string()),
+  capturedAt: v.optional(v.number()),
+  screenshotStorageId: v.optional(v.id("_storage")),
+});
+
+export const submitExternalPageFindings = action({
+  args: {
+    workerToken: v.string(),
+    scanRunId: v.id("scanRuns"),
+    pageRunId: v.id("scanRunPages"),
+    findings: v.array(externalScannerFindingValidator),
+    extractLatencyMs: v.optional(v.number()),
+    pageScreenshotStorageId: v.optional(v.id("_storage")),
+    pageScreenshotCapturedAt: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    const processing = await ctx.runQuery(internal.scans.getScanRunPageForProcessing, {
+      scanRunId: args.scanRunId,
+      pageRunId: args.pageRunId,
+    });
+    if (!processing) return null;
+    await ctx.runMutation(internal.scans.replaceFindingsForPage, {
+      scanRunId: args.scanRunId,
+      scanRunPageId: args.pageRunId,
+      assetId: processing.scanRun.assetId,
+      findings: args.findings as any,
+    });
+    await ctx.runMutation(internal.scans.completeScanRunPage, {
+      pageRunId: args.pageRunId,
+      findingCount: args.findings.length,
+      extractLatencyMs: args.extractLatencyMs,
+      pageScreenshotStorageId: args.pageScreenshotStorageId,
+      pageScreenshotCapturedAt: args.pageScreenshotCapturedAt,
+    });
+    return null;
+  },
+});
+
+export const failExternalPageScan = action({
+  args: {
+    workerToken: v.string(),
+    pageRunId: v.id("scanRunPages"),
+    errorMessage: v.string(),
+    errorCategory: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    await ctx.runMutation(internal.scans.failScanRunPage, {
+      pageRunId: args.pageRunId,
+      errorMessage: args.errorMessage,
+      errorCategory: args.errorCategory,
+    });
+    return null;
+  },
+});
+
+export const enqueueExternalScannerSmokeTest = action({
+  args: {
+    workerToken: v.string(),
+    assetId: v.id("assets"),
+    pageUrl: v.string(),
+  },
+  returns: v.object({
+    scanRunId: v.id("scanRuns"),
+    pageRunId: v.id("scanRunPages"),
+  }),
+  handler: async (ctx, args) => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    const created = (await ctx.runMutation(internal.scans.createExternalWorkerSmokeRun, {
+      assetId: args.assetId,
+      pageUrl: args.pageUrl,
+    })) as { scanRunId: Id<"scanRuns">; pageRunId: Id<"scanRunPages"> };
+    return created;
+  },
+});
+
+export const getExternalScannerSmokeResult = action({
+  args: {
+    workerToken: v.string(),
+    scanRunId: v.id("scanRuns"),
+    pageRunId: v.id("scanRunPages"),
+  },
+  returns: v.object({
+    scanRunStatus: scanRunStatusValidator,
+    pageStatus: scanRunPageStatusValidator,
+    pageErrorMessage: v.optional(v.string()),
+    pageFindingCount: v.number(),
+    totalFindingsForPage: v.number(),
+    sources: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    const snapshot = (await ctx.runQuery(internal.scans.getExternalScannerSmokeSnapshot, {
+      scanRunId: args.scanRunId,
+      pageRunId: args.pageRunId,
+    })) as {
+      scanRunStatus: "queued" | "running" | "completed" | "failed" | "canceled";
+      pageStatus: "queued" | "running" | "completed" | "failed" | "canceled";
+      pageErrorMessage?: string;
+      pageFindingCount: number;
+      totalFindingsForPage: number;
+      sources: string[];
+    };
+    return snapshot;
+  },
+});
+
+export const createExternalWorkerSmokeRun = internalMutation({
+  args: {
+    assetId: v.id("assets"),
+    pageUrl: v.string(),
+  },
+  returns: v.object({
+    scanRunId: v.id("scanRuns"),
+    pageRunId: v.id("scanRunPages"),
+  }),
+  handler: async (ctx, args) => {
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) {
+      throw new ConvexError("Asset not found.");
+    }
+    const now = nowMs();
+    const scanRunId = await ctx.db.insert("scanRuns", {
+      assetId: asset._id,
+      profile: "wcag_2_2_aa",
+      mode: "website_pages",
+      status: "running",
+      queuedAt: now,
+      startedAt: now,
+      totalPages: 1,
+      queuedPages: 1,
+      runningPages: 0,
+      completedPages: 0,
+      failedPages: 0,
+      createdBy: asset.createdBy,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const pageRunId = await ctx.db.insert("scanRunPages", {
+      scanRunId,
+      assetId: asset._id,
+      createdBy: asset.createdBy,
+      pageUrl: args.pageUrl,
+      normalizedUrl: args.pageUrl,
+      status: "queued",
+      attempt: 0,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { scanRunId, pageRunId };
+  },
+});
+
+export const getExternalScannerSmokeSnapshot = internalQuery({
+  args: {
+    scanRunId: v.id("scanRuns"),
+    pageRunId: v.id("scanRunPages"),
+  },
+  returns: v.object({
+    scanRunStatus: scanRunStatusValidator,
+    pageStatus: scanRunPageStatusValidator,
+    pageErrorMessage: v.optional(v.string()),
+    pageFindingCount: v.number(),
+    totalFindingsForPage: v.number(),
+    sources: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const scanRun = await ctx.db.get(args.scanRunId);
+    if (!scanRun) {
+      throw new ConvexError("Scan run not found.");
+    }
+    const page = await ctx.db.get(args.pageRunId);
+    if (!page || page.scanRunId !== args.scanRunId) {
+      throw new ConvexError("Scan run page not found.");
+    }
+    const findings = await ctx.db
+      .query("findings")
+      .withIndex("by_scanRunPage_createdAt", (q) =>
+        q.eq("scanRunPageId", args.pageRunId),
+      )
+      .collect();
+    return {
+      scanRunStatus: scanRun.status,
+      pageStatus: page.status,
+      pageErrorMessage: page.errorMessage,
+      pageFindingCount: page.findingCount ?? 0,
+      totalFindingsForPage: findings.length,
+      sources: Array.from(new Set(findings.map((finding) => finding.source))),
+    };
+  },
+});
+
+export const backfillDiscoveredPageUniqueness = internalMutation({
+  args: {
+    assetId: v.id("assets"),
+  },
+  returns: v.object({
+    removedCount: v.number(),
+    remainingCount: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const normalizePageUrl = (raw: string): string => {
+      try {
+        return normalizeHttpUrl(raw);
+      } catch {
+        return raw.trim();
+      }
+    };
+    const rows = await ctx.db
+      .query("discoveredPages")
+      .withIndex("by_asset_discoveredAt", (q) => q.eq("assetId", args.assetId))
+      .order("desc")
+      .collect();
+    const seen = new Set<string>();
+    let removedCount = 0;
+    for (const row of rows) {
+      const key = normalizePageUrl(row.normalizedUrl || row.pageUrl);
+      if (seen.has(key)) {
+        await ctx.db.delete(row._id);
+        removedCount += 1;
+        continue;
+      }
+      seen.add(key);
+      if (row.normalizedUrl !== key || row.pageUrl !== key) {
+        await ctx.db.patch(row._id, {
+          normalizedUrl: key,
+          pageUrl: key,
+        });
+      }
+    }
+    return {
+      removedCount,
+      remainingCount: seen.size,
+    };
   },
 });

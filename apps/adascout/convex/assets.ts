@@ -4,7 +4,11 @@ import type { Id } from "./_generated/dataModel";
 import { api, internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { normalizeHttpUrl, nowMs, requireUserId } from "./helpers";
-import { assetKindValidator, assetStatusValidator } from "./scanTypes";
+import {
+  assetKindValidator,
+  assetStatusValidator,
+  urlAssetScopeValidator,
+} from "./scanTypes";
 
 export const generateAssetUploadUrl = mutation({
   args: {},
@@ -20,6 +24,7 @@ export const createUrlAsset = mutation({
     sourceUrl: v.string(),
     title: v.optional(v.string()),
     autoDiscover: v.optional(v.boolean()),
+    scanScope: v.optional(urlAssetScopeValidator),
   },
   returns: v.object({
     assetId: v.id("assets"),
@@ -31,6 +36,7 @@ export const createUrlAsset = mutation({
   ): Promise<{ assetId: Id<"assets">; discoveredPages: unknown[] }> => {
     const userId = await requireUserId(ctx);
     const normalizedUrl = normalizeHttpUrl(args.sourceUrl);
+    const urlScope = args.scanScope ?? "website";
     const existing = await ctx.db
       .query("assets")
       .withIndex("by_createdBy_normalizedUrl", (q) =>
@@ -40,10 +46,20 @@ export const createUrlAsset = mutation({
     let assetId: Id<"assets">;
     if (existing) {
       assetId = existing._id;
+      if (existing.kind === "url") {
+        await ctx.db.patch(existing._id, {
+          title: args.title?.trim() ?? existing.title,
+          sourceUrl: args.sourceUrl.trim(),
+          normalizedUrl,
+          urlScope,
+          updatedAt: nowMs(),
+        });
+      }
     } else {
       const now = nowMs();
       assetId = await ctx.db.insert("assets", {
         kind: "url",
+        urlScope,
         status: "ready",
         title: args.title?.trim() ?? undefined,
         sourceUrl: args.sourceUrl.trim(),
@@ -109,6 +125,7 @@ export const listMyAssets = query({
       _id: v.id("assets"),
       _creationTime: v.number(),
       kind: assetKindValidator,
+      urlScope: v.optional(urlAssetScopeValidator),
       status: assetStatusValidator,
       title: v.optional(v.string()),
       sourceUrl: v.optional(v.string()),
@@ -148,6 +165,7 @@ export const listMyAssets = query({
         _id: row._id,
         _creationTime: row._creationTime,
         kind: row.kind,
+        urlScope: row.urlScope,
         status: row.status,
         title: row.title,
         sourceUrl: row.sourceUrl,
@@ -173,6 +191,7 @@ export const getMyAsset = query({
     v.object({
       _id: v.id("assets"),
       kind: assetKindValidator,
+      urlScope: v.optional(urlAssetScopeValidator),
       status: assetStatusValidator,
       title: v.optional(v.string()),
       sourceUrl: v.optional(v.string()),
@@ -201,6 +220,7 @@ export const getMyAsset = query({
     return {
       _id: row._id,
       kind: row.kind,
+      urlScope: row.urlScope,
       status: row.status,
       title: row.title,
       sourceUrl: row.sourceUrl,

@@ -1,14 +1,23 @@
 "use client";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { api } from "@/convex/_generated/api";
-import { useQuery } from "convex/react";
-import { ArrowLeft, FileText, Globe } from "lucide-react";
+import { useAction, useMutation, useQuery } from "convex/react";
+import { ArrowLeft, FileText, Globe, Search, Scan } from "lucide-react";
 
 import { cn } from "@acme/ui";
+import { Button } from "@acme/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@acme/ui/dialog";
 
 const tabs = [
   { href: "/admin/assets/[assetId]", label: "Overview" },
@@ -32,6 +41,18 @@ export default function AssetDetailsLayout({
       : undefined;
 
   const asset = useQuery(api.assets.getMyAsset, assetId ? { assetId } : "skip");
+  const discoveredPages = useQuery(
+    api.scans.listDiscoveredPages,
+    assetId ? { assetId, limit: 2000 } : "skip",
+  );
+  const detectPages = useAction(api.scans.detectPages);
+  const createScanRun = useMutation(api.scans.createScanRun);
+  const [isDetectingPages, setIsDetectingPages] = useState(false);
+  const [isStartingSiteScan, setIsStartingSiteScan] = useState(false);
+  const [scanDialogOpen, setScanDialogOpen] = useState(false);
+  const [headerActionMessage, setHeaderActionMessage] = useState<string | null>(
+    null,
+  );
 
   // Build tab hrefs with actual assetId
   const tabLinks = useMemo(() => {
@@ -93,6 +114,58 @@ export default function AssetDetailsLayout({
             Back
           </Link>
         </div>
+        {asset?.kind === "url" ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!assetId || isDetectingPages}
+              onClick={async () => {
+                if (!assetId) return;
+                try {
+                  setIsDetectingPages(true);
+                  setHeaderActionMessage(null);
+                  const result = await detectPages({ assetId });
+                  setHeaderActionMessage(
+                    `Detect Pages complete: ${result.insertedCount} new page(s) added (${result.totalKnownPages} total known pages).`,
+                  );
+                } catch (error) {
+                  setHeaderActionMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to detect pages.",
+                  );
+                } finally {
+                  setIsDetectingPages(false);
+                }
+              }}
+            >
+              <Search className="mr-2 h-4 w-4" />
+              {isDetectingPages ? "Detecting..." : "Detect Pages"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={!assetId || isStartingSiteScan}
+              onClick={() => setScanDialogOpen(true)}
+            >
+              <Scan className="mr-2 h-4 w-4" />
+              Scan Site
+            </Button>
+            <Link
+              href={`/admin/assets/${assetId}/pages`}
+              className="text-muted-foreground text-xs underline underline-offset-4"
+            >
+              Scan only specific pages at /pages
+            </Link>
+            <span className="text-muted-foreground text-xs">
+              Known pages:{" "}
+              {discoveredPages === undefined ? "Loading..." : discoveredPages.length}
+            </span>
+          </div>
+        ) : null}
+        {headerActionMessage ? (
+          <p className="text-muted-foreground mt-2 text-xs">{headerActionMessage}</p>
+        ) : null}
       </div>
 
       <div className="w-full min-w-0 overflow-x-auto">
@@ -119,6 +192,51 @@ export default function AssetDetailsLayout({
       </div>
 
       {children}
+      <Dialog open={scanDialogOpen} onOpenChange={setScanDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start Full Site Scan?</DialogTitle>
+            <DialogDescription>
+              Are you sure? This will start a full scan of the entire site. You can
+              also scan only specific pages at /pages.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={isStartingSiteScan}
+              onClick={() => setScanDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!assetId || isStartingSiteScan}
+              onClick={async () => {
+                if (!assetId) return;
+                try {
+                  setIsStartingSiteScan(true);
+                  setHeaderActionMessage(null);
+                  const scanRunId = await createScanRun({ assetId });
+                  setHeaderActionMessage(
+                    `Started full site scan. Scan: ${String(scanRunId).slice(0, 12)}...`,
+                  );
+                  setScanDialogOpen(false);
+                } catch (error) {
+                  setHeaderActionMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to start full site scan.",
+                  );
+                } finally {
+                  setIsStartingSiteScan(false);
+                }
+              }}
+            >
+              {isStartingSiteScan ? "Starting..." : "Start Full Scan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

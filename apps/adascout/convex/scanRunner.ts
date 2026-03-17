@@ -221,16 +221,34 @@ const computeEvidenceHash = (args: {
   target?: string;
   pageUrl?: string;
   codeSnippet?: string;
-}) =>
-  [
-    args.source,
-    args.ruleId,
-    args.target ?? "",
-    args.pageUrl ?? "",
-    args.codeSnippet ?? "",
-  ]
-    .join("|")
-    .toLowerCase();
+}) => {
+  const normalizeForHash = (value: string | undefined): string =>
+    String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  const normalizePageUrlForHash = (value: string | undefined): string => {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    try {
+      const parsed = new URL(raw);
+      parsed.hash = "";
+      parsed.pathname =
+        parsed.pathname === "/"
+          ? "/"
+          : parsed.pathname.replace(/\/+$/, "") || "/";
+      return parsed.toString().toLowerCase();
+    } catch {
+      return normalizeForHash(raw);
+    }
+  };
+  return [
+    normalizeForHash(args.source),
+    normalizeForHash(args.ruleId),
+    normalizeForHash(args.target),
+    normalizePageUrlForHash(args.pageUrl),
+  ].join("|");
+};
 
 const categorizeScanError = (error: unknown): string => {
   const message = (
@@ -801,6 +819,53 @@ export const extractXmlLocs = (xml: string): string[] => {
     .filter((value) => value.length > 0);
 };
 
+const extractUrlsFromLooseText = (text: string): string[] => {
+  const matches = text.match(/https?:\/\/[^\s<>"'`]+/gi) ?? [];
+  return matches
+    .map((value) => value.replace(/[),.;]+$/g, ""))
+    .filter((value) => value.length > 0);
+};
+
+const toProxyMirrorUrl = (rawUrl: string): string =>
+  `https://r.jina.ai/http://${rawUrl.replace(/^https?:\/\//i, "")}`;
+
+const stripTrailingIsoTimestampSegment = (normalizedUrl: string): string => {
+  try {
+    const parsed = new URL(normalizedUrl);
+    const segments = parsed.pathname.split("/").filter((segment) => segment);
+    if (segments.length === 0) return normalizedUrl;
+    const last = segments.at(-1)?.toLowerCase() ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}\+\d{2}:\d{2}$/.test(last)) {
+      return normalizedUrl;
+    }
+    const nextPath = `/${segments.slice(0, -1).join("/")}`;
+    parsed.pathname = nextPath === "/" ? "/" : nextPath;
+    if (parsed.pathname !== "/" && parsed.pathname.endsWith("/")) {
+      parsed.pathname = parsed.pathname.slice(0, -1);
+    }
+    return parsed.toString();
+  } catch {
+    return normalizedUrl;
+  }
+};
+
+const normalizeCandidateUrl = (candidate: string): string | null => {
+  const normalized = normalizeUrlForCrawl(candidate);
+  if (!normalized) return null;
+  const cleaned = stripTrailingIsoTimestampSegment(normalized);
+  return normalizeUrlForCrawl(cleaned);
+};
+
+const isLikelySitemapDocumentUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    const pathname = parsed.pathname.toLowerCase();
+    return pathname.endsWith(".xml") || pathname.includes("sitemap");
+  } catch {
+    return false;
+  }
+};
+
 export const extractInternalLinks = (
   html: string,
   origin: string,
@@ -834,25 +899,66 @@ export const extractInternalLinks = (
 export const discoverWebsiteUrls = async (
   seedUrl: string,
   maxUrls: number,
+  options?: {
+    useTimeouts?: boolean;
+    sitemapOnly?: boolean;
+  },
 ): Promise<Array<string>> => {
   const normalizedSeed = normalizeUrlForCrawl(seedUrl);
   if (!normalizedSeed) return [];
+  const useTimeouts = options?.useTimeouts ?? true;
+  const sitemapOnly = options?.sitemapOnly ?? false;
+  const discoveryHeaders: Record<string, string> = {
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.9,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+  };
   const seed = new URL(normalizedSeed);
   const origin = seed.origin;
   const discovered = new Set<string>([normalizedSeed]);
+  const fetchForDiscovery = async (
+    label: string,
+    url: string,
+    timeoutMs: number,
+  ): Promise<Response> => {
+    if (!useTimeouts) {
+      return await fetch(url, {
+        headers: discoveryHeaders,
+        redirect: "follow",
+      });
+    }
+    return await withTimeout(label, timeoutMs, async () =>
+      withRetry(
+        label,
+        async () =>
+          await fetch(url, {
+            headers: discoveryHeaders,
+            redirect: "follow",
+          }),
+        1,
+      ),
+    );
+  };
 
   // Sitemap-first discovery.
-  const sitemapCandidates = [`${origin}/sitemap.xml`];
+  const sitemapCandidates = [
+    `${origin}/sitemap.xml`,
+    `${origin}/sitemap_index.xml`,
+    `${origin}/wp-sitemap.xml`,
+    `${origin}/page-sitemap.xml`,
+    `${origin}/post-sitemap.xml`,
+    `${origin}/wp-sitemap-posts-page-1.xml`,
+    `${origin}/wp-sitemap-posts-post-1.xml`,
+  ];
   try {
-    const robotsResponse = await withTimeout(
+    const robotsResponse = await fetchForDiscovery(
       "robots.txt fetch",
+      `${origin}/robots.txt`,
       10_000,
-      async () =>
-        withRetry(
-          "robots.txt fetch",
-          async () => fetch(`${origin}/robots.txt`),
-          1,
-        ),
     );
     if (robotsResponse.ok) {
       const robots = await robotsResponse.text();
@@ -869,19 +975,31 @@ export const discoverWebsiteUrls = async (
     // robots.txt is best-effort
   }
 
-  for (const sitemapUrl of sitemapCandidates) {
-    if (discovered.size >= maxUrls) break;
+  const sitemapQueue = Array.from(new Set(sitemapCandidates));
+  const visitedSitemaps = new Set<string>();
+  while (sitemapQueue.length > 0 && discovered.size < maxUrls) {
+    const sitemapUrl = sitemapQueue.shift();
+    if (!sitemapUrl || visitedSitemaps.has(sitemapUrl)) continue;
+    visitedSitemaps.add(sitemapUrl);
     try {
-      const response = await withTimeout("sitemap fetch", 12_000, async () =>
-        withRetry("sitemap fetch", async () => fetch(sitemapUrl), 1),
+      const response = await fetchForDiscovery(
+        "sitemap fetch",
+        sitemapUrl,
+        12_000,
       );
       if (!response.ok) continue;
       const xml = await response.text();
       for (const loc of extractXmlLocs(xml)) {
-        const normalized = normalizeUrlForCrawl(loc);
+        const normalized = normalizeCandidateUrl(loc);
         if (!normalized) continue;
         const parsed = new URL(normalized);
         if (parsed.origin !== origin) continue;
+        if (isLikelySitemapDocumentUrl(normalized)) {
+          if (!visitedSitemaps.has(normalized)) {
+            sitemapQueue.push(normalized);
+          }
+          continue;
+        }
         discovered.add(normalized);
         if (discovered.size >= maxUrls) break;
       }
@@ -891,6 +1009,9 @@ export const discoverWebsiteUrls = async (
   }
 
   // Crawl fallback when sitemap has too few links.
+  if (sitemapOnly) {
+    return Array.from(discovered).filter(isLikelyHtmlPageUrl).slice(0, maxUrls);
+  }
   const queue: string[] = [normalizedSeed];
   const visited = new Set<string>();
   while (queue.length > 0 && discovered.size < maxUrls) {
@@ -898,19 +1019,23 @@ export const discoverWebsiteUrls = async (
     if (!current || visited.has(current)) continue;
     visited.add(current);
     try {
-      const response = await withTimeout("crawl page fetch", 10_000, async () =>
-        withRetry("crawl page fetch", async () => fetch(current), 1),
+      const response = await fetchForDiscovery(
+        "crawl page fetch",
+        current,
+        10_000,
       );
       if (!response.ok) continue;
       const html = await response.text();
       const links = extractInternalLinks(html, origin);
       for (const link of links) {
-        if (!discovered.has(link)) {
-          discovered.add(link);
+        const normalizedLink = normalizeCandidateUrl(link);
+        if (!normalizedLink) continue;
+        if (!discovered.has(normalizedLink)) {
+          discovered.add(normalizedLink);
           if (discovered.size >= maxUrls) break;
         }
-        if (!visited.has(link) && queue.length < maxUrls * 2) {
-          queue.push(link);
+        if (!visited.has(normalizedLink) && queue.length < maxUrls * 2) {
+          queue.push(normalizedLink);
         }
       }
     } catch {
@@ -918,7 +1043,143 @@ export const discoverWebsiteUrls = async (
     }
   }
 
+  // Some hosts soft-block server-side crawlers in Convex runtime. As a final
+  // non-browser fallback, fetch sitemap content through a text mirror endpoint.
+  if (discovered.size <= 1 && discovered.size < maxUrls) {
+    const proxySitemapQueue = [
+      `${origin}/sitemap.xml`,
+      `${origin}/sitemap_index.xml`,
+      `${origin}/robots.txt`,
+    ];
+    const visitedProxySitemaps = new Set<string>();
+    while (proxySitemapQueue.length > 0 && discovered.size < maxUrls) {
+      const sitemapOrRobotsUrl = proxySitemapQueue.shift();
+      if (
+        !sitemapOrRobotsUrl ||
+        visitedProxySitemaps.has(sitemapOrRobotsUrl)
+      ) {
+        continue;
+      }
+      visitedProxySitemaps.add(sitemapOrRobotsUrl);
+      try {
+        const proxyUrl = toProxyMirrorUrl(sitemapOrRobotsUrl);
+        const response = await fetchForDiscovery(
+          "proxy sitemap fetch",
+          proxyUrl,
+          15_000,
+        );
+        if (!response.ok) continue;
+        const text = await response.text();
+        const candidates = [
+          ...extractXmlLocs(text),
+          ...extractUrlsFromLooseText(text),
+        ];
+        for (const candidate of candidates) {
+          const normalized = normalizeCandidateUrl(candidate);
+          if (!normalized) continue;
+          const parsed = new URL(normalized);
+          if (parsed.origin !== origin) continue;
+          if (isLikelySitemapDocumentUrl(normalized)) {
+            if (!visitedProxySitemaps.has(normalized)) {
+              proxySitemapQueue.push(normalized);
+            }
+            continue;
+          }
+          if (!isLikelyHtmlPageUrl(normalized)) continue;
+          discovered.add(normalized);
+          if (discovered.size >= maxUrls) break;
+        }
+      } catch {
+        // Proxy sitemap fallback is best-effort.
+      }
+    }
+  }
+
   return Array.from(discovered).filter(isLikelyHtmlPageUrl).slice(0, maxUrls);
+};
+
+const stagehandDiscoverySchema = z.object({
+  links: z.array(z.string()).optional(),
+  urls: z.array(z.string()).optional(),
+  hrefs: z.array(z.string()).optional(),
+});
+
+const collectCandidateUrls = (value: unknown): string[] => {
+  const out = new Set<string>();
+  if (!value) return [];
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) out.add(trimmed);
+    return Array.from(out);
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      for (const nested of collectCandidateUrls(item)) out.add(nested);
+    }
+    return Array.from(out);
+  }
+  if (typeof value === "object") {
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      for (const candidate of collectCandidateUrls(nested)) out.add(candidate);
+    }
+  }
+  return Array.from(out);
+};
+
+export const discoverWebsiteUrlsViaStagehand = async (
+  ctx: GenericActionCtx<any>,
+  seedUrl: string,
+  maxUrls: number,
+): Promise<string[]> => {
+  const normalizedSeed = normalizeUrlForCrawl(seedUrl);
+  if (!normalizedSeed) return [];
+  const runtime = getStagehandConfigForRuntime();
+  if (!runtime) return [normalizedSeed];
+  const origin = new URL(normalizedSeed).origin;
+  const discovered = new Set<string>([normalizedSeed]);
+  const discoveryTargets = [
+    normalizedSeed,
+    `${origin}/sitemap.xml`,
+    `${origin}/sitemap_index.xml`,
+  ];
+
+  for (const targetUrl of discoveryTargets) {
+    if (discovered.size >= maxUrls) break;
+    try {
+      const extracted = (await withTimeout(
+        "Stagehand discovery extract",
+        90_000,
+        async () =>
+          await runtime.stagehand.extract(ctx, {
+            url: targetUrl,
+            instruction:
+              "Extract all URL links present in the page content and DOM. Return absolute URLs only, preserving same-site URLs.",
+            schema: stagehandDiscoverySchema,
+            options: { waitUntil: "domcontentloaded", timeout: 45_000 },
+          }),
+      )) as unknown;
+      const candidates = collectCandidateUrls(extracted);
+      for (const rawLink of candidates) {
+        const normalized = normalizeUrlForCrawl(rawLink);
+        if (!normalized) continue;
+        const parsed = new URL(normalized);
+        if (parsed.origin !== origin) continue;
+        if (isLikelySitemapDocumentUrl(normalized)) continue;
+        if (!isLikelyHtmlPageUrl(normalized)) continue;
+        discovered.add(normalized);
+        if (discovered.size >= maxUrls) break;
+      }
+    } catch (error) {
+      logScanPhase({
+        event: "stagehand_discovery_failed",
+        seedUrl: normalizedSeed,
+        targetUrl,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return Array.from(discovered).slice(0, maxUrls);
 };
 
 const scanPdfFromFileUrl = async (
@@ -1146,6 +1407,21 @@ export const discoverAndQueueSitePages = internalAction({
     } else {
       const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
       pageUrls = await discoverWebsiteUrls(asset.normalizedUrl, maxUrls);
+      if (pageUrls.length <= 1) {
+        const stagehandDiscovered = await discoverWebsiteUrlsViaStagehand(
+          ctx,
+          asset.normalizedUrl,
+          maxUrls,
+        );
+        if (stagehandDiscovered.length > pageUrls.length) {
+          pageUrls = stagehandDiscovered;
+          logScanPhase({
+            event: "discover_stagehand_fallback_used",
+            scanRunId: args.scanRunId,
+            discoveredUrls: pageUrls.length,
+          });
+        }
+      }
     }
     if (pageUrls.length === 0) {
       throw new Error("No crawlable URLs discovered.");
@@ -1564,10 +1840,20 @@ export const e2eWebsiteScanSmoke = internalAction({
       }),
     ),
   }),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const maxPages = Math.max(1, Math.min(500, Number(args.maxPages ?? 100)));
     const samplePages = Math.max(1, Math.min(5, Number(args.samplePages ?? 1)));
-    const discovered = await discoverWebsiteUrls(args.url, maxPages);
+    let discovered = await discoverWebsiteUrls(args.url, maxPages);
+    if (discovered.length <= 1) {
+      const stagehandDiscovered = await discoverWebsiteUrlsViaStagehand(
+        ctx,
+        args.url,
+        maxPages,
+      );
+      if (stagehandDiscovered.length > discovered.length) {
+        discovered = stagehandDiscovered;
+      }
+    }
     const sampled = discovered.slice(0, samplePages);
     const pages: {
       url: string;

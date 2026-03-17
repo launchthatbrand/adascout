@@ -2,6 +2,10 @@ import { v } from "convex/values";
 
 export const assetKindValidator = v.union(v.literal("url"), v.literal("file_pdf"));
 export const assetStatusValidator = v.union(v.literal("ready"), v.literal("archived"));
+export const urlAssetScopeValidator = v.union(
+  v.literal("single_page"),
+  v.literal("website"),
+);
 
 export const scanRunStatusValidator = v.union(
   v.literal("queued"),

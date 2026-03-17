@@ -12,6 +12,7 @@ import {
   scanRunModeValidator,
   scanRunPageStatusValidator,
   scanRunStatusValidator,
+  urlAssetScopeValidator,
   wcagProfileValidator,
 } from "./scanTypes";
 
@@ -33,6 +34,7 @@ export default defineSchema({
 
   assets: defineTable({
     kind: assetKindValidator,
+    urlScope: v.optional(urlAssetScopeValidator),
     status: assetStatusValidator,
     title: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
@@ -81,7 +83,8 @@ export default defineSchema({
   })
     .index("by_asset_createdAt", ["assetId", "createdAt"])
     .index("by_createdBy_createdAt", ["createdBy", "createdAt"])
-    .index("by_createdBy_status", ["createdBy", "status"]),
+    .index("by_createdBy_status", ["createdBy", "status"])
+    .index("by_status_createdAt", ["status", "createdAt"]),
 
   scanRunPages: defineTable({
     scanRunId: v.id("scanRuns"),
@@ -101,6 +104,8 @@ export default defineSchema({
     lastExtractLatencyMs: v.optional(v.number()),
     lastErrorCategory: v.optional(v.string()),
     terminalErrorCategory: v.optional(v.string()),
+    pageScreenshotStorageId: v.optional(v.id("_storage")),
+    pageScreenshotCapturedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -164,6 +169,13 @@ export default defineSchema({
     evidenceHash: v.optional(v.string()),
     domSnippet: v.optional(v.string()),
     selectorSnapshot: v.optional(v.string()),
+    highlightId: v.optional(v.number()),
+    bboxX: v.optional(v.number()),
+    bboxY: v.optional(v.number()),
+    bboxWidth: v.optional(v.number()),
+    bboxHeight: v.optional(v.number()),
+    screenshotViewportWidth: v.optional(v.number()),
+    screenshotViewportHeight: v.optional(v.number()),
     pageTitle: v.optional(v.string()),
     capturedAt: v.optional(v.number()),
     screenshotStorageId: v.optional(v.id("_storage")),
@@ -184,6 +196,7 @@ export default defineSchema({
     name: v.optional(v.string()),
     layout: reportLayoutValidator,
     selectedScanRunIds: v.optional(v.array(v.id("scanRuns"))),
+    selectedFindingIds: v.optional(v.array(v.id("findings"))),
     selectedSeverities: v.optional(v.array(findingSeverityValidator)),
     selectedSources: v.optional(v.array(findingSourceValidator)),
     logoStorageId: v.optional(v.id("_storage")),

@@ -1,11 +1,5 @@
 "use client";
 
-import type { Id } from "@/convex/_generated/dataModel";
-import { useMemo } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import { api } from "@/convex/_generated/api";
-import { useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -17,6 +11,12 @@ import {
 import { Badge } from "@acme/ui/badge";
 import { Button } from "@acme/ui/button";
 import { Card } from "@acme/ui/card";
+import type { Id } from "@/convex/_generated/dataModel";
+import Link from "next/link";
+import { api } from "@/convex/_generated/api";
+import { useMemo } from "react";
+import { useParams } from "next/navigation";
+import { useQuery } from "convex/react";
 
 export default function AssetOverviewPage() {
   const params = useParams();
@@ -207,15 +207,14 @@ export default function AssetOverviewPage() {
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <span
-                    className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-                      stats.latestScan.status === "failed"
+                    className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${stats.latestScan.status === "failed"
                         ? "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-900/50 dark:text-red-300"
                         : stats.latestScan.status === "completed"
                           ? "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-900/50 dark:text-green-300"
                           : stats.latestScan.status === "running"
                             ? "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
                             : "border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                    }`}
+                      }`}
                   >
                     {stats.latestScan.status}
                   </span>

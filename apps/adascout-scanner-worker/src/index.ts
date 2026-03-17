@@ -1,0 +1,1275 @@
+import { AxeBuilder } from "@axe-core/playwright";
+import { ConvexHttpClient } from "convex/browser";
+import { FingerprintGenerator } from "fingerprint-generator";
+import { FingerprintInjector } from "fingerprint-injector";
+import { createServer } from "node:http";
+import { chromium } from "playwright-core";
+import { z } from "zod";
+
+const configSchema = z.object({
+  CONVEX_URL: z.string().url(),
+  ADA_SCANNER_WORKER_TOKEN: z.string().min(1),
+  BROWSERLESS_CDP_URL: z.string().min(1),
+  SCANNER_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
+  SCANNER_IDLE_SLEEP_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
+  SCANNER_PAGE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(180_000).default(45_000),
+  SCANNER_SETTLE_MS: z.coerce.number().int().min(0).max(30_000).default(1_000),
+  SCANNER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(8081),
+  SCANNER_PROXY_MODE: z.enum(["off", "fallback", "always"]).default("fallback"),
+  SCANNER_PROXY_PROTOCOL: z.enum(["http", "https", "socks5"]).default("http"),
+  SCANNER_PROXY_ENDPOINTS: z.string().optional(),
+  SCANNER_PROXY_USERNAME: z.string().optional(),
+  SCANNER_PROXY_PASSWORD: z.string().optional(),
+  SCANNER_FINGERPRINT_ENABLED: z.coerce.boolean().default(true),
+  SCANNER_FINGERPRINT_BROWSERS: z.string().default("chrome"),
+  SCANNER_FINGERPRINT_OPERATING_SYSTEMS: z.string().default("linux"),
+  SCANNER_FINGERPRINT_DEVICES: z.string().default("desktop"),
+  SCANNER_FINGERPRINT_LOCALE: z.string().default("en-US"),
+  SCANNER_FINGERPRINT_TIMEZONE: z.string().default("America/New_York"),
+});
+
+const config = configSchema.parse(process.env);
+const convex = new ConvexHttpClient(config.CONVEX_URL);
+
+type ClaimResponse = {
+  scanRunId: string;
+  pageRunId: string;
+  assetId: string;
+  pageUrl: string;
+  queueWaitMs: number;
+} | null;
+
+type WorkerFinding = {
+  source: "axe";
+  severity: "critical" | "serious" | "moderate" | "minor" | "info";
+  ruleId: string;
+  title: string;
+  description?: string;
+  help?: string;
+  helpUrl?: string;
+  target?: string;
+  pageUrl?: string;
+  codeSnippet?: string;
+  manualReviewRequired?: boolean;
+  confidence?: number;
+  evidenceHash?: string;
+  selectorSnapshot?: string;
+  domSnippet?: string;
+  pageTitle?: string;
+  highlightId?: number;
+  bboxX?: number;
+  bboxY?: number;
+  bboxWidth?: number;
+  bboxHeight?: number;
+  screenshotViewportWidth?: number;
+  screenshotViewportHeight?: number;
+};
+
+type WorkerState = {
+  startedAt: number;
+  processedPages: number;
+  failedPages: number;
+  inFlight: number;
+  lastError?: string;
+};
+
+type PageScanResult = {
+  findings: Array<WorkerFinding>;
+  pageScreenshotStorageId?: string;
+  pageScreenshotCapturedAt?: number;
+  screenshotErrorCategory?: string;
+  screenshotErrorMessage?: string;
+};
+
+type BrowserProxyConfig = {
+  server: string;
+  username?: string;
+  password?: string;
+};
+
+type BrowserFingerprintProfile = {
+  fingerprint: {
+    headers?: Record<string, string>;
+    fingerprint: {
+      navigator?: {
+        userAgent?: string;
+      };
+      screen?: {
+        width?: number;
+        height?: number;
+      };
+    };
+  };
+  userAgent?: string;
+  viewport?: {
+    width: number;
+    height: number;
+  };
+};
+
+type NavigationDiagnostics = {
+  finalUrl: string;
+  pageTitle: string;
+  bodySnippet: string;
+  botSignals: string[];
+};
+
+const state: WorkerState = {
+  startedAt: Date.now(),
+  processedPages: 0,
+  failedPages: 0,
+  inFlight: 0,
+};
+
+const proxyEndpoints = String(config.SCANNER_PROXY_ENDPOINTS ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+const hasProxyConfig = proxyEndpoints.length > 0;
+const parseCsvList = (value: string): string[] =>
+  value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+const fingerprintInjector = new FingerprintInjector();
+const fingerprintGenerator = new FingerprintGenerator({
+  // Keep persona stable by default; values can be overridden by env.
+  browsers: parseCsvList(config.SCANNER_FINGERPRINT_BROWSERS),
+  operatingSystems: parseCsvList(config.SCANNER_FINGERPRINT_OPERATING_SYSTEMS),
+  devices: parseCsvList(config.SCANNER_FINGERPRINT_DEVICES),
+  locales: parseCsvList(config.SCANNER_FINGERPRINT_LOCALE),
+} as unknown as Record<string, unknown>);
+
+const getFingerprintProfile = (): BrowserFingerprintProfile | null => {
+  if (!config.SCANNER_FINGERPRINT_ENABLED) {
+    return null;
+  }
+  const generated = fingerprintGenerator.getFingerprint(
+    {
+      browsers: parseCsvList(config.SCANNER_FINGERPRINT_BROWSERS),
+      operatingSystems: parseCsvList(config.SCANNER_FINGERPRINT_OPERATING_SYSTEMS),
+      devices: parseCsvList(config.SCANNER_FINGERPRINT_DEVICES),
+      locales: parseCsvList(config.SCANNER_FINGERPRINT_LOCALE),
+    } as unknown as Record<string, unknown>,
+  ) as unknown as BrowserFingerprintProfile["fingerprint"];
+
+  const width = Number(generated.fingerprint.screen?.width ?? 1600);
+  const height = Number(generated.fingerprint.screen?.height ?? 1200);
+  const userAgent = generated.fingerprint.navigator?.userAgent;
+  return {
+    fingerprint: generated,
+    userAgent: userAgent && userAgent.trim().length > 0 ? userAgent : undefined,
+    viewport: {
+      width: Number.isFinite(width) ? Math.max(1024, Math.min(2560, width)) : 1600,
+      height: Number.isFinite(height) ? Math.max(700, Math.min(2000, height)) : 1200,
+    },
+  };
+};
+
+const pickProxy = (): BrowserProxyConfig | null => {
+  if (!hasProxyConfig) return null;
+  const endpoint =
+    proxyEndpoints[Math.floor(Math.random() * proxyEndpoints.length)] ??
+    proxyEndpoints[0];
+  if (!endpoint) return null;
+  return {
+    server: `${config.SCANNER_PROXY_PROTOCOL}://${endpoint}`,
+    username: config.SCANNER_PROXY_USERNAME,
+    password: config.SCANNER_PROXY_PASSWORD,
+  };
+};
+
+const sleep = async (ms: number) =>
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const callAction = async <T>(name: string, args: unknown): Promise<T> =>
+  await (convex as unknown as { action: (n: string, a: unknown) => Promise<T> }).action(
+    name,
+    args,
+  );
+
+const classifyError = (error: unknown): string => {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (message.includes("timeout")) return "timeout";
+  if (message.includes("net::err") || message.includes("econnrefused")) return "network";
+  if (message.includes("403") || message.includes("captcha") || message.includes("access denied")) {
+    return "bot_protection";
+  }
+  if (message.includes("navigation")) return "navigation";
+  return "unknown";
+};
+
+const impactToSeverity = (impact: string | null | undefined): WorkerFinding["severity"] => {
+  if (impact === "critical") return "critical";
+  if (impact === "serious") return "serious";
+  if (impact === "moderate") return "moderate";
+  if (impact === "minor") return "minor";
+  return "info";
+};
+
+const createEvidenceKey = (ruleId: string, selector: string, pageUrl: string): string =>
+  `axe|${ruleId}|${selector || "document"}|${pageUrl}`;
+
+const uploadPageScreenshot = async (screenshotBytes: Buffer): Promise<string> => {
+  const uploadTarget = await callAction<{ uploadUrl: string }>(
+    "scans:createExternalPageScreenshotUploadUrl",
+    {
+      workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+    },
+  );
+  const uploadResponse = await fetch(uploadTarget.uploadUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "image/jpeg",
+    },
+    body: screenshotBytes,
+  });
+  if (!uploadResponse.ok) {
+    throw new Error(`Screenshot upload failed with status ${uploadResponse.status}`);
+  }
+  const payload = (await uploadResponse.json()) as { storageId?: string };
+  if (!payload.storageId) {
+    throw new Error("Screenshot upload response missing storageId");
+  }
+  return payload.storageId;
+};
+
+const collectNavigationDiagnostics = async (
+  page: {
+    url: () => string;
+    title: () => Promise<string>;
+    evaluate: <T>(fn: () => T) => Promise<T>;
+  },
+): Promise<NavigationDiagnostics> => {
+  const finalUrl = page.url();
+  const pageTitle = (await page.title().catch(() => "")).slice(0, 200);
+  const bodySnippet = await page
+    .evaluate(() => {
+      const doc = (globalThis as unknown as { document?: unknown }).document as
+        | {
+            body?: { innerText?: string };
+          }
+        | undefined;
+      return String(doc?.body?.innerText ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 500);
+    })
+    .catch(() => "");
+
+  const haystack = `${pageTitle} ${bodySnippet}`.toLowerCase();
+  const botSignals: string[] = [];
+  if (haystack.includes("403")) botSignals.push("http_403_text");
+  if (haystack.includes("access denied")) botSignals.push("access_denied");
+  if (haystack.includes("captcha")) botSignals.push("captcha");
+  if (haystack.includes("cloudflare")) botSignals.push("cloudflare");
+  if (haystack.includes("forbidden")) botSignals.push("forbidden");
+
+  return { finalUrl, pageTitle, bodySnippet, botSignals };
+};
+
+const waitForVisualReadiness = async (
+  page: {
+    waitForLoadState: (
+      state: "domcontentloaded" | "load" | "networkidle",
+      options?: { timeout?: number },
+    ) => Promise<void>;
+    evaluate: <T>(fn: () => T | Promise<T>) => Promise<T>;
+    waitForTimeout: (ms: number) => Promise<void>;
+  },
+): Promise<void> => {
+  // Prefer a real browser-idle signal when available.
+  await page
+    .waitForLoadState("networkidle", {
+      timeout: Math.max(1_500, Math.min(15_000, config.SCANNER_PAGE_TIMEOUT_MS)),
+    })
+    .catch(() => undefined);
+
+  // Then wait for fonts + decodable images to reduce "half-loaded" screenshots.
+  await page
+    .evaluate(async () => {
+      const root = globalThis as unknown as {
+        document?: {
+          images?: ArrayLike<{
+            complete?: boolean;
+            naturalWidth?: number;
+            decode?: () => Promise<void>;
+            addEventListener?: (
+              name: string,
+              cb: () => void,
+              options?: { once?: boolean },
+            ) => void;
+          }>;
+          fonts?: { ready?: Promise<unknown> };
+        };
+      };
+      const doc = root.document;
+      if (!doc) return;
+
+      const fontsReady = (() => {
+        const fonts = doc.fonts;
+        if (!fonts?.ready) return Promise.resolve();
+        return fonts.ready.catch(() => undefined);
+      })();
+
+      const imagePromises = Array.from(doc.images ?? [])
+        .filter((img) => !img.complete || img.naturalWidth === 0)
+        .slice(0, 150)
+        .map(async (img) => {
+          try {
+            if (typeof img.decode === "function") {
+              await img.decode();
+            } else {
+              await new Promise<void>((resolve) => {
+                const done = () => resolve();
+                if (img.addEventListener) {
+                  img.addEventListener("load", done, { once: true });
+                  img.addEventListener("error", done, { once: true });
+                } else {
+                  resolve();
+                }
+                setTimeout(done, 1_000);
+              });
+            }
+          } catch {
+            // Ignore individual image decode errors.
+          }
+        });
+
+      await Promise.race([
+        Promise.all([fontsReady, ...imagePromises]),
+        new Promise<void>((resolve) => setTimeout(resolve, 3_500)),
+      ]);
+    })
+    .catch(() => undefined);
+
+  await page.waitForTimeout(250);
+};
+
+const preparePageForScreenshot = async (
+  page: {
+    evaluate: <T>(fn: () => T) => Promise<T>;
+    waitForTimeout: (ms: number) => Promise<void>;
+  },
+): Promise<{ totalHeight: number; contentBottom: number; captureHeight: number; appliedZoom: number }> => {
+  const prep = await page.evaluate(() => {
+    const dom = (globalThis as unknown as { document?: unknown; innerHeight?: number }).document as
+      | {
+          body?: {
+            scrollHeight?: number;
+            style?: { setProperty: (name: string, value: string) => void };
+          };
+          documentElement?: {
+            scrollHeight?: number;
+            style?: { setProperty: (name: string, value: string) => void };
+          };
+        }
+      | undefined;
+    if (!dom) {
+      return { totalHeight: 0, appliedZoom: 1 };
+    }
+
+    const viewportHeight = Math.max(
+      1,
+      Number((globalThis as unknown as { innerHeight?: number }).innerHeight ?? 900),
+    );
+    const totalHeight = Math.max(
+      0,
+      Number(dom.body?.scrollHeight ?? 0),
+      Number(dom.documentElement?.scrollHeight ?? 0),
+    );
+
+    // Some remote Chromium runs clip tall screenshots well below desktop
+    // Chrome's max texture size. Keep the final page height conservative.
+    const maxTargetHeight = 7_000;
+    const appliedZoom =
+      totalHeight > maxTargetHeight
+        ? Math.max(0.2, maxTargetHeight / Math.max(totalHeight, 1))
+        : 1;
+    if (appliedZoom < 1) {
+      dom.documentElement?.style?.setProperty?.("zoom", String(appliedZoom));
+      dom.body?.style?.setProperty?.("zoom", String(appliedZoom));
+    }
+
+    const adjustedHeight = Math.max(
+      0,
+      Number(dom.body?.scrollHeight ?? 0),
+      Number(dom.documentElement?.scrollHeight ?? 0),
+    );
+    const stepCount = Math.max(
+      1,
+      Math.min(40, Math.ceil(Math.max(adjustedHeight, viewportHeight) / viewportHeight)),
+    );
+    return { totalHeight: adjustedHeight, appliedZoom, stepCount, viewportHeight };
+  });
+
+  const stepCount = Math.max(
+    1,
+    Math.min(
+      40,
+      Math.ceil(Math.max(prep.totalHeight || 0, 1200) / 900),
+    ),
+  );
+  for (let i = 0; i < stepCount; i += 1) {
+    await page.evaluate(() => {
+      const root = globalThis as unknown as {
+        scrollBy?: (x: number, y: number) => void;
+        innerHeight?: number;
+      };
+      const delta = Math.max(600, Number(root.innerHeight ?? 900) - 120);
+      root.scrollBy?.(0, delta);
+      return null;
+    });
+    await page.waitForTimeout(100);
+  }
+  await page.evaluate(() => {
+    const root = globalThis as unknown as { scrollTo?: (x: number, y: number) => void };
+    root.scrollTo?.(0, 0);
+    return null;
+  });
+  await page.waitForTimeout(150);
+
+  const finalMetrics = await page.evaluate(() => {
+    const root = globalThis as unknown as {
+      document?: {
+        body?: { scrollHeight?: number; querySelectorAll?: (selector: string) => Iterable<unknown> };
+        documentElement?: { scrollHeight?: number };
+      };
+      getComputedStyle?: (node: unknown) => {
+        display?: string;
+        visibility?: string;
+        position?: string;
+        opacity?: string;
+        backgroundImage?: string;
+      };
+      scrollY?: number;
+      innerHeight?: number;
+    };
+    const doc = root.document;
+    if (!doc) {
+      return { totalHeight: 0, contentBottom: 0, captureHeight: 0 };
+    }
+    const totalHeight = Math.max(
+      0,
+      Number(doc.body?.scrollHeight ?? 0),
+      Number(doc.documentElement?.scrollHeight ?? 0),
+    );
+    const viewportHeight = Math.max(1, Number(root.innerHeight ?? 900));
+    const getComputedStyle = root.getComputedStyle;
+    const scrollY = Number(root.scrollY ?? 0);
+    const elements = Array.from(doc.body?.querySelectorAll?.("*") ?? []);
+    let contentBottom = 0;
+    for (const node of elements) {
+      const element = node as {
+        tagName?: string;
+        textContent?: string | null;
+        getBoundingClientRect?: () => { top?: number; bottom?: number; width?: number; height?: number };
+      };
+      const rect = element.getBoundingClientRect?.();
+      if (!rect) continue;
+      const width = Number(rect.width ?? 0);
+      const height = Number(rect.height ?? 0);
+      if (width <= 0 || height <= 0) continue;
+      const style = getComputedStyle?.(node);
+      if (style?.display === "none" || style?.visibility === "hidden") continue;
+      if (style?.opacity === "0") continue;
+      // Fixed elements (sticky bars, floating chat, etc.) shouldn't extend capture height.
+      if (style?.position === "fixed") continue;
+      const tagName = String(element.tagName ?? "").toUpperCase();
+      const hasText = String(element.textContent ?? "").trim().length > 0;
+      const hasMedia = ["IMG", "VIDEO", "IFRAME", "CANVAS", "SVG"].includes(tagName);
+      const hasBackgroundImage =
+        typeof style?.backgroundImage === "string" &&
+        style.backgroundImage.trim() !== "" &&
+        style.backgroundImage !== "none";
+      // Skip large empty layout wrappers that artificially inflate page bottom.
+      if (!hasText && !hasMedia && !hasBackgroundImage && width * height < 30_000) continue;
+      const bottom = Number(rect.bottom ?? 0) + scrollY;
+      if (Number.isFinite(bottom)) {
+        contentBottom = Math.max(contentBottom, bottom);
+      }
+    }
+    if (contentBottom <= 0) {
+      contentBottom = totalHeight;
+    }
+    // Include a small buffer for shadows and partially clipped last blocks.
+    const captureHeight = Math.max(
+      viewportHeight,
+      Math.ceil(Math.min(totalHeight, contentBottom + 120)),
+    );
+    return { totalHeight, contentBottom, captureHeight };
+  });
+
+  return {
+    totalHeight: finalMetrics.totalHeight || prep.totalHeight,
+    contentBottom: finalMetrics.contentBottom || prep.totalHeight,
+    captureHeight: finalMetrics.captureHeight || prep.totalHeight,
+    appliedZoom: prep.appliedZoom,
+  };
+};
+
+type HighlightEntry = {
+  selector: string;
+  highlightId: number;
+};
+
+const applyFindingHighlights = async (
+  page: {
+    addStyleTag: (args: { content: string }) => Promise<unknown>;
+    evaluate: <T>(fn: (entries: Array<HighlightEntry>) => T, arg: Array<HighlightEntry>) => Promise<T>;
+  },
+  entries: Array<HighlightEntry>,
+): Promise<number> => {
+  if (entries.length === 0) {
+    return 0;
+  }
+
+  await page.addStyleTag({
+    content: `
+      [data-adascout-highlight="true"] {
+        outline: 3px solid #ef4444 !important;
+        outline-offset: 2px !important;
+        box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3) !important;
+      }
+      [data-adascout-highlight-index]::after {
+        content: attr(data-adascout-highlight-index);
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform: translate(-10%, -110%);
+        background: #ef4444;
+        color: #fff;
+        font: 700 10px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        border-radius: 9999px;
+        padding: 2px 6px;
+        z-index: 2147483647;
+        pointer-events: none;
+      }
+    `,
+  });
+
+  return await page.evaluate((rawEntries) => {
+    const dom = (globalThis as unknown as { document?: unknown; getComputedStyle?: unknown })
+      .document as
+      | {
+          querySelectorAll: (selector: string) => Iterable<unknown>;
+        }
+      | undefined;
+    const getComputedStyle = (globalThis as unknown as { getComputedStyle?: unknown })
+      .getComputedStyle as ((element: unknown) => { position?: string }) | undefined;
+    if (!dom) {
+      return 0;
+    }
+    const uniqueEntries = Array.from(
+      new Map(
+        rawEntries
+          .map((entry) => ({
+            selector: String(entry.selector || "").trim(),
+            highlightId: Number(entry.highlightId || 0),
+          }))
+          .filter((entry) => entry.selector.length > 0 && entry.highlightId > 0)
+          .map((entry) => [entry.highlightId, entry] as const),
+      ).values(),
+    );
+    let highlighted = 0;
+    for (const entry of uniqueEntries) {
+      try {
+        const nodes = dom.querySelectorAll(entry.selector);
+        for (const node of nodes) {
+          const element = node as {
+            dataset?: Record<string, string | undefined>;
+            style?: { setProperty: (name: string, value: string, priority?: string) => void };
+          };
+          if (!element.dataset) {
+            continue;
+          }
+          if (element.dataset.adascoutHighlight === "true") {
+            continue;
+          }
+          highlighted += 1;
+          element.dataset.adascoutHighlight = "true";
+          element.dataset.adascoutHighlightIndex = String(entry.highlightId);
+          if (
+            getComputedStyle?.(element).position === "static" &&
+            element.style?.setProperty
+          ) {
+            element.style.setProperty("position", "relative", "important");
+          }
+        }
+      } catch {
+        // Ignore invalid selectors emitted by engines.
+      }
+    }
+    return highlighted;
+  }, entries);
+};
+
+const collectFindingBoundingBoxes = async (
+  page: {
+    evaluate: <T>(
+      fn: (entries: Array<HighlightEntry>) => T,
+      arg: Array<HighlightEntry>,
+    ) => Promise<T>;
+  },
+  entries: Array<HighlightEntry>,
+): Promise<Map<number, { x: number; y: number; width: number; height: number }>> => {
+  if (entries.length === 0) {
+    return new Map();
+  }
+  const boxes = await page.evaluate((rawEntries) => {
+    const dom = (globalThis as unknown as { document?: unknown }).document as
+      | {
+          querySelector: (selector: string) => {
+            getBoundingClientRect: () => {
+              left: number;
+              top: number;
+              width: number;
+              height: number;
+            };
+          } | null;
+        }
+      | undefined;
+    if (!dom) {
+      return [];
+    }
+    const results: Array<{
+      highlightId: number;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
+    for (const entry of rawEntries) {
+      const selector = String(entry.selector || "").trim();
+      const highlightId = Number(entry.highlightId || 0);
+      if (!selector || highlightId <= 0) continue;
+      try {
+        const element = dom.querySelector(selector);
+        if (!element) continue;
+        const rect = element.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+        const root = globalThis as unknown as { scrollX?: number; scrollY?: number };
+        const x = rect.left + Number(root.scrollX ?? 0);
+        const y = rect.top + Number(root.scrollY ?? 0);
+        results.push({
+          highlightId,
+          x: Number.isFinite(x) ? x : 0,
+          y: Number.isFinite(y) ? y : 0,
+          width: Number.isFinite(rect.width) ? rect.width : 0,
+          height: Number.isFinite(rect.height) ? rect.height : 0,
+        });
+      } catch {
+        // Ignore invalid selectors or inaccessible elements.
+      }
+    }
+    return results;
+  }, entries);
+
+  const map = new Map<number, { x: number; y: number; width: number; height: number }>();
+  for (const box of boxes) {
+    map.set(box.highlightId, {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+    });
+  }
+  return map;
+};
+
+type ImageAltPolicyResult = {
+  missingAlt: Array<{ selector: string; htmlSnippet?: string }>;
+  emptyAlt: Array<{ selector: string; htmlSnippet?: string }>;
+};
+
+const collectImageAltPolicyFindings = async (
+  page: { evaluate: <T>(fn: () => T) => Promise<T> },
+): Promise<ImageAltPolicyResult> =>
+  await page.evaluate(() => {
+    const dom = (globalThis as unknown as { document?: unknown }).document as
+      | {
+          querySelectorAll: (selector: string) => Iterable<unknown>;
+        }
+      | undefined;
+    if (!dom) {
+      return { missingAlt: [], emptyAlt: [] };
+    }
+
+    const cssEscape = (value: string): string =>
+      value.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
+
+    const toUniqueSelector = (
+      node: {
+        tagName?: string;
+        id?: string;
+        parentElement?: unknown;
+        previousElementSibling?: unknown;
+      },
+    ): string => {
+      const chain: string[] = [];
+      let current = node as
+        | {
+            tagName?: string;
+            id?: string;
+            parentElement?: unknown;
+            previousElementSibling?: unknown;
+          }
+        | undefined;
+      let depth = 0;
+      while (current && depth < 16) {
+        const tag = String(current.tagName ?? "").toLowerCase();
+        if (!tag) break;
+
+        let siblingIndex = 1;
+        let prev = current.previousElementSibling as
+          | { tagName?: string; previousElementSibling?: unknown }
+          | undefined;
+        while (prev) {
+          if (String(prev.tagName ?? "").toLowerCase() === tag) {
+            siblingIndex += 1;
+          }
+          prev = prev.previousElementSibling as
+            | { tagName?: string; previousElementSibling?: unknown }
+            | undefined;
+        }
+
+        const id = String(current.id ?? "").trim();
+        const part = id
+          ? `${tag}#${cssEscape(id)}`
+          : `${tag}:nth-of-type(${siblingIndex})`;
+        chain.unshift(part);
+
+        if (id) break;
+        current = current.parentElement as
+          | {
+              tagName?: string;
+              id?: string;
+              parentElement?: unknown;
+              previousElementSibling?: unknown;
+            }
+          | undefined;
+        depth += 1;
+      }
+      return chain.join(" > ") || "img:nth-of-type(1)";
+    };
+
+    const normalize = (nodes: Iterable<unknown>) => {
+      const results: Array<{ selector: string; htmlSnippet?: string }> = [];
+      for (const node of Array.from(nodes)) {
+        const element = node as {
+          outerHTML?: string;
+          getAttribute?: (name: string) => string | null;
+          getClientRects?: () => { length: number };
+          closest?: (selector: string) => unknown;
+          tagName?: string;
+          id?: string;
+          className?: string;
+        };
+        if (!element.getClientRects || element.getClientRects().length === 0) {
+          continue;
+        }
+        const role = element.getAttribute?.("role");
+        const ariaHidden = element.getAttribute?.("aria-hidden");
+        const isPresentation = role === "presentation" || role === "none";
+        const isHidden =
+          ariaHidden === "true" || Boolean(element.closest?.('[aria-hidden="true"]'));
+        if (isPresentation || isHidden) {
+          continue;
+        }
+        const snippet = String(element.outerHTML ?? "").slice(0, 2_000);
+        const selector = toUniqueSelector(element);
+        results.push({
+          selector,
+          ...(snippet ? { htmlSnippet: snippet } : {}),
+        });
+      }
+      return results;
+    };
+
+    return {
+      missingAlt: normalize(dom.querySelectorAll("img:not([alt])")),
+      emptyAlt: normalize(dom.querySelectorAll('img[alt=""]')),
+    };
+  });
+
+const runAxeScanAttempt = async (
+  pageUrl: string,
+  proxy: BrowserProxyConfig | null,
+): Promise<PageScanResult> => {
+  const attemptType = proxy ? "proxy" : "direct";
+  const proxyServer = proxy?.server ?? null;
+  const browser = await chromium.connectOverCDP(config.BROWSERLESS_CDP_URL);
+  let fingerprintProfile: BrowserFingerprintProfile | null = null;
+  if (config.SCANNER_FINGERPRINT_ENABLED) {
+    try {
+      fingerprintProfile = getFingerprintProfile();
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "fingerprint_profile_failed_fallback",
+          pageUrl,
+          attemptType,
+          reason: error instanceof Error ? error.message : String(error),
+          phase: "generate",
+        }),
+      );
+      fingerprintProfile = null;
+    }
+  }
+
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    viewport: fingerprintProfile?.viewport ?? { width: 1600, height: 1200 },
+    userAgent:
+      fingerprintProfile?.userAgent ??
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    locale: config.SCANNER_FINGERPRINT_LOCALE,
+    timezoneId: config.SCANNER_FINGERPRINT_TIMEZONE,
+    ...(proxy ? { proxy } : {}),
+  });
+  if (fingerprintProfile) {
+    try {
+      await fingerprintInjector.attachFingerprintToPlaywright(
+        context as unknown as Parameters<
+          FingerprintInjector["attachFingerprintToPlaywright"]
+        >[0],
+        fingerprintProfile.fingerprint as unknown as Parameters<
+          FingerprintInjector["attachFingerprintToPlaywright"]
+        >[1],
+      );
+      console.info(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "fingerprint_profile_applied",
+          pageUrl,
+          attemptType,
+          proxyServer,
+          locale: config.SCANNER_FINGERPRINT_LOCALE,
+          timezone: config.SCANNER_FINGERPRINT_TIMEZONE,
+          viewport: fingerprintProfile.viewport,
+        }),
+      );
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "fingerprint_profile_failed_fallback",
+          pageUrl,
+          attemptType,
+          reason: error instanceof Error ? error.message : String(error),
+          phase: "inject",
+        }),
+      );
+    }
+  }
+  const page = await context.newPage();
+  const scanResult: PageScanResult = {
+    findings: [],
+  };
+  try {
+    console.info(
+      JSON.stringify({
+        component: "adascout-axe-worker",
+        event: "scan_attempt_started",
+        pageUrl,
+        attemptType,
+        proxyServer,
+      }),
+    );
+    const firstResponse = await page.goto(pageUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: config.SCANNER_PAGE_TIMEOUT_MS,
+    });
+    const firstStatus = firstResponse?.status() ?? 0;
+    const firstDiagnostics = await collectNavigationDiagnostics(page);
+    console.info(
+      JSON.stringify({
+        component: "adascout-axe-worker",
+        event: "scan_navigation_diagnostics",
+        pageUrl,
+        attemptType,
+        stage: "first",
+        status: firstStatus,
+        ...firstDiagnostics,
+      }),
+    );
+    if (firstStatus === 401 || firstStatus === 403 || firstStatus === 429) {
+      // One retry for transient bot/rate-limit gates.
+      await page.waitForTimeout(1200);
+      const retryResponse = await page.goto(pageUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: config.SCANNER_PAGE_TIMEOUT_MS,
+      });
+      const retryStatus = retryResponse?.status() ?? 0;
+      const retryDiagnostics = await collectNavigationDiagnostics(page);
+      console.info(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "scan_navigation_diagnostics",
+          pageUrl,
+          attemptType,
+          stage: "retry",
+          status: retryStatus,
+          ...retryDiagnostics,
+        }),
+      );
+      if (retryStatus === 401 || retryStatus === 403 || retryStatus === 429) {
+        throw new Error(`bot_protection_http_${retryStatus}`);
+      }
+      if (retryStatus >= 400) {
+        throw new Error(`http_status_${retryStatus}`);
+      }
+    } else if (firstStatus >= 400) {
+      throw new Error(`http_status_${firstStatus}`);
+    }
+    if (config.SCANNER_SETTLE_MS > 0) {
+      await page.waitForTimeout(config.SCANNER_SETTLE_MS);
+    }
+    const pageTitle = await page.title();
+    const result = await new AxeBuilder({ page }).analyze();
+    for (const violation of result.violations) {
+      for (const node of violation.nodes) {
+        const selector = node.target
+          .map((targetValue: unknown) =>
+            typeof targetValue === "string" ? targetValue : "",
+          )
+          .filter(Boolean)
+          .join(" ")
+          .slice(0, 512);
+        const htmlSnippet = node.html?.slice(0, 2_000);
+        scanResult.findings.push({
+          source: "axe",
+          severity: impactToSeverity(violation.impact),
+          ruleId: violation.id,
+          title: violation.help,
+          description: node.failureSummary ?? violation.description,
+          help: violation.help,
+          helpUrl: violation.helpUrl,
+          target: selector || undefined,
+          selectorSnapshot: selector || undefined,
+          pageUrl,
+          codeSnippet: htmlSnippet,
+          domSnippet: htmlSnippet,
+          manualReviewRequired: false,
+          confidence: 0.95,
+          pageTitle: pageTitle || undefined,
+          evidenceHash: createEvidenceKey(violation.id, selector, pageUrl),
+        });
+      }
+    }
+    const imageAltPolicy = await collectImageAltPolicyFindings(page);
+    for (const finding of imageAltPolicy.missingAlt) {
+      scanResult.findings.push({
+        source: "axe",
+        severity: "serious",
+        ruleId: "policy.image-missing-alt",
+        title: "Image missing alt attribute",
+        description:
+          "Image element does not include an alt attribute. Add meaningful alt text or alt=\"\" if decorative.",
+        help:
+          "Provide alt text for informative images. If decorative, explicitly set alt=\"\".",
+        target: finding.selector,
+        selectorSnapshot: finding.selector,
+        pageUrl,
+        codeSnippet: finding.htmlSnippet,
+        domSnippet: finding.htmlSnippet,
+        manualReviewRequired: true,
+        confidence: 0.98,
+        pageTitle: pageTitle || undefined,
+        evidenceHash: createEvidenceKey("policy.image-missing-alt", finding.selector, pageUrl),
+      });
+    }
+    for (const finding of imageAltPolicy.emptyAlt) {
+      scanResult.findings.push({
+        source: "axe",
+        severity: "moderate",
+        ruleId: "policy.image-empty-alt",
+        title: "Image has empty alt text",
+        description:
+          "Image uses alt=\"\". Confirm it is truly decorative; otherwise provide descriptive alternative text.",
+        help:
+          "Use non-empty alt text for meaningful images; reserve empty alt for decorative content only.",
+        target: finding.selector,
+        selectorSnapshot: finding.selector,
+        pageUrl,
+        codeSnippet: finding.htmlSnippet,
+        domSnippet: finding.htmlSnippet,
+        manualReviewRequired: true,
+        confidence: 0.9,
+        pageTitle: pageTitle || undefined,
+        evidenceHash: createEvidenceKey("policy.image-empty-alt", finding.selector, pageUrl),
+      });
+    }
+    if (imageAltPolicy.missingAlt.length > 0 || imageAltPolicy.emptyAlt.length > 0) {
+      console.info(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "scan_image_alt_policy_findings",
+          pageUrl,
+          missingAltCount: imageAltPolicy.missingAlt.length,
+          emptyAltCount: imageAltPolicy.emptyAlt.length,
+        }),
+      );
+    }
+
+    for (const [index, finding] of scanResult.findings.entries()) {
+      finding.highlightId = index + 1;
+    }
+    const highlightEntries: Array<HighlightEntry> = scanResult.findings
+      .map((finding) => ({
+        selector: String(finding.selectorSnapshot ?? finding.target ?? "").trim(),
+        highlightId: Number(finding.highlightId ?? 0),
+      }))
+      .filter((entry) => entry.selector.length > 0 && entry.highlightId > 0);
+
+    try {
+      const highlightedCount = await applyFindingHighlights(page, highlightEntries);
+      const screenshotPrep = await preparePageForScreenshot(page);
+      await waitForVisualReadiness(page);
+
+      const viewport = page.viewportSize() ?? { width: 1600, height: 1200 };
+      const captureHeight = Math.max(1, Math.ceil(screenshotPrep.captureHeight || viewport.height));
+
+      if (captureHeight > viewport.height) {
+        await page.setViewportSize({
+          width: viewport.width,
+          height: captureHeight,
+        });
+        await page.waitForTimeout(120);
+      }
+
+      const bboxByHighlightId = await collectFindingBoundingBoxes(page, highlightEntries);
+      for (const finding of scanResult.findings) {
+        if (!finding.highlightId) continue;
+        const bbox = bboxByHighlightId.get(finding.highlightId);
+        if (!bbox) continue;
+        finding.bboxX = bbox.x;
+        finding.bboxY = bbox.y;
+        finding.bboxWidth = bbox.width;
+        finding.bboxHeight = bbox.height;
+        finding.screenshotViewportWidth = viewport.width;
+        finding.screenshotViewportHeight = captureHeight;
+      }
+
+      const screenshotBuffer = await page.screenshot({
+        type: "jpeg",
+        quality: 70,
+        animations: "disabled",
+        caret: "hide",
+      });
+      scanResult.pageScreenshotStorageId = await uploadPageScreenshot(
+        screenshotBuffer,
+      );
+      scanResult.pageScreenshotCapturedAt = Date.now();
+      console.info(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "page_screenshot_captured",
+          pageUrl,
+          highlightedCount,
+          totalPageHeight: screenshotPrep.totalHeight,
+          contentBottom: screenshotPrep.contentBottom,
+          appliedZoom: screenshotPrep.appliedZoom,
+          captureHeight,
+          findingCount: scanResult.findings.length,
+        }),
+      );
+    } catch (error) {
+      scanResult.screenshotErrorCategory = classifyError(error);
+      scanResult.screenshotErrorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.warn(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "page_screenshot_capture_failed",
+          pageUrl,
+          errorCategory: scanResult.screenshotErrorCategory,
+          errorMessage: scanResult.screenshotErrorMessage,
+        }),
+      );
+    }
+    return scanResult;
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        component: "adascout-axe-worker",
+        event: "scan_attempt_failed",
+        pageUrl,
+        attemptType,
+        proxyServer,
+        errorCategory: classifyError(error),
+        errorMessage: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    throw error;
+  } finally {
+    await page.close().catch(() => undefined);
+    await context.close().catch(() => undefined);
+    await browser.close().catch(() => undefined);
+  }
+};
+
+const isBotProtectionError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("bot_protection_http_") || classifyError(error) === "bot_protection"
+  );
+};
+
+const runAxeScan = async (pageUrl: string): Promise<PageScanResult> => {
+  if (config.SCANNER_PROXY_MODE === "always" && hasProxyConfig) {
+    const proxy = pickProxy();
+    console.info(
+      JSON.stringify({
+        component: "adascout-axe-worker",
+        event: "scan_attempt_with_proxy",
+        pageUrl,
+        proxyEnabled: Boolean(proxy),
+      }),
+    );
+    return await runAxeScanAttempt(pageUrl, proxy);
+  }
+
+  try {
+    return await runAxeScanAttempt(pageUrl, null);
+  } catch (error) {
+    const shouldRetryWithProxy =
+      config.SCANNER_PROXY_MODE === "fallback" &&
+      hasProxyConfig &&
+      isBotProtectionError(error);
+    if (!shouldRetryWithProxy) {
+      throw error;
+    }
+    const proxy = pickProxy();
+    console.info(
+      JSON.stringify({
+        component: "adascout-axe-worker",
+        event: "retry_with_proxy_after_bot_protection",
+        pageUrl,
+        originalError: error instanceof Error ? error.message : String(error),
+        proxyEnabled: Boolean(proxy),
+      }),
+    );
+    return await runAxeScanAttempt(pageUrl, proxy);
+  }
+};
+
+const processOnePage = async (): Promise<boolean> => {
+  const claim = await callAction<ClaimResponse>("scans:claimNextPageForExternalScanner", {
+    workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+  });
+  if (!claim) return false;
+  const startedAt = Date.now();
+  try {
+    const scanResult = await runAxeScan(claim.pageUrl);
+    if (scanResult.screenshotErrorMessage) {
+      console.info(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "page_scan_completed_with_screenshot_error",
+          pageUrl: claim.pageUrl,
+          errorCategory: scanResult.screenshotErrorCategory ?? "unknown",
+          errorMessage: scanResult.screenshotErrorMessage,
+        }),
+      );
+    }
+    await callAction<null>("scans:submitExternalPageFindings", {
+      workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+      scanRunId: claim.scanRunId,
+      pageRunId: claim.pageRunId,
+      findings: scanResult.findings,
+      extractLatencyMs: Date.now() - startedAt,
+      pageScreenshotStorageId: scanResult.pageScreenshotStorageId,
+      pageScreenshotCapturedAt: scanResult.pageScreenshotCapturedAt,
+    });
+    state.processedPages += 1;
+    return true;
+  } catch (error) {
+    state.failedPages += 1;
+    state.lastError = error instanceof Error ? error.message : String(error);
+    await callAction<null>("scans:failExternalPageScan", {
+      workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+      pageRunId: claim.pageRunId,
+      errorMessage: state.lastError,
+      errorCategory: classifyError(error),
+    }).catch(() => undefined);
+    return true;
+  }
+};
+
+const runWorkerLoop = async (workerIndex: number): Promise<void> => {
+  while (true) {
+    state.inFlight += 1;
+    const didWork = await processOnePage().catch((error) => {
+      state.lastError = error instanceof Error ? error.message : String(error);
+      return false;
+    });
+    state.inFlight = Math.max(0, state.inFlight - 1);
+    if (!didWork) {
+      await sleep(config.SCANNER_IDLE_SLEEP_MS);
+    }
+    if (didWork) {
+      // Keep short delay to avoid hotspot polling loops.
+      await sleep(150);
+    }
+    if (workerIndex === 0) {
+      // Single heartbeat logger to keep logs compact.
+      const uptimeMs = Date.now() - state.startedAt;
+      console.info(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "heartbeat",
+          uptimeMs,
+          processedPages: state.processedPages,
+          failedPages: state.failedPages,
+          inFlight: state.inFlight,
+        }),
+      );
+    }
+  }
+};
+
+const startHealthServer = () => {
+  const server = createServer((req, res) => {
+    if (req.url !== "/healthz") {
+      res.statusCode = 404;
+      res.end("not found");
+      return;
+    }
+    const payload = {
+      ok: true,
+      uptimeMs: Date.now() - state.startedAt,
+      processedPages: state.processedPages,
+      failedPages: state.failedPages,
+      inFlight: state.inFlight,
+      lastError: state.lastError ?? null,
+    };
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(payload));
+  });
+  server.listen(config.SCANNER_HEALTH_PORT, () => {
+    console.info(
+      JSON.stringify({
+        component: "adascout-axe-worker",
+        event: "health_server_started",
+        port: config.SCANNER_HEALTH_PORT,
+      }),
+    );
+  });
+};
+
+const main = async () => {
+  startHealthServer();
+  const workers: Array<Promise<void>> = [];
+  for (let i = 0; i < config.SCANNER_MAX_CONCURRENCY; i += 1) {
+    workers.push(runWorkerLoop(i));
+  }
+  await Promise.all(workers);
+};
+
+void main();

@@ -38,6 +38,7 @@ const reportValidator = v.object({
   name: v.optional(v.string()),
   layout: layoutValidator,
   selectedScanRunIds: v.optional(v.array(v.id("scanRuns"))),
+  selectedFindingIds: v.optional(v.array(v.id("findings"))),
   selectedSeverities: v.optional(v.array(severityValidator)),
   selectedSources: v.optional(v.array(sourceValidator)),
   logoStorageId: v.optional(v.id("_storage")),
@@ -132,6 +133,7 @@ export const upsertReportForScanRun = internalMutation({
       name: undefined,
       layout: "compact",
       selectedScanRunIds: [args.scanRunId],
+      selectedFindingIds: undefined,
       selectedSeverities: undefined,
       selectedSources: undefined,
       logoStorageId: undefined,
@@ -179,6 +181,7 @@ export const createMyReport = mutation({
       name: args.name?.trim() ?? undefined,
       layout: "compact",
       selectedScanRunIds: undefined,
+      selectedFindingIds: undefined,
       selectedSeverities: undefined,
       selectedSources: undefined,
       logoStorageId: undefined,
@@ -187,6 +190,85 @@ export const createMyReport = mutation({
       baselineScanRunId: undefined,
       includeNewResolvedRegressed: false,
       filterSnapshotJson: undefined,
+      formatVersion: 2,
+      generatedAt: now,
+      updatedAt: now,
+      totalFindings: 0,
+      criticalCount: 0,
+      seriousCount: 0,
+      moderateCount: 0,
+      minorCount: 0,
+      infoCount: 0,
+      manualReviewRequiredCount: 0,
+      markdown: "",
+      json: "{}",
+      pdfHtml: undefined,
+    });
+  },
+});
+
+export const createMyReportFromFindingIds = mutation({
+  args: {
+    assetId: v.id("assets"),
+    findingIds: v.array(v.id("findings")),
+    name: v.optional(v.string()),
+  },
+  returns: v.id("reports"),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || asset.createdBy !== userId) {
+      throw new ConvexError("Asset not found.");
+    }
+
+    const uniqueFindingIds = Array.from(new Set(args.findingIds));
+    if (uniqueFindingIds.length === 0) {
+      throw new ConvexError("Select at least one finding.");
+    }
+
+    const selectedFindings = [];
+    for (const findingId of uniqueFindingIds) {
+      const finding = await ctx.db.get(findingId);
+      if (!finding || finding.assetId !== args.assetId) continue;
+      selectedFindings.push(finding);
+    }
+    if (selectedFindings.length === 0) {
+      throw new ConvexError("No valid findings selected for this asset.");
+    }
+
+    const now = nowMs();
+    const selectedScanRunIds = Array.from(
+      new Set(selectedFindings.map((finding) => finding.scanRunId)),
+    );
+
+    return await ctx.db.insert("reports", {
+      assetId: args.assetId,
+      scanRunId: selectedScanRunIds.length === 1 ? selectedScanRunIds[0] : undefined,
+      generatedBy: userId,
+      profile: "wcag_2_2_aa",
+      name: args.name?.trim() ?? undefined,
+      layout: "compact",
+      selectedScanRunIds,
+      selectedFindingIds: selectedFindings.map((finding) => finding._id),
+      selectedSeverities: undefined,
+      selectedSources: undefined,
+      logoStorageId: undefined,
+      companyName: undefined,
+      footerText: undefined,
+      baselineScanRunId: undefined,
+      includeNewResolvedRegressed: false,
+      filterSnapshotJson: JSON.stringify(
+        {
+          selectedScanRunIds,
+          selectedFindingIds: selectedFindings.map((finding) => finding._id),
+          selectedSeverities: [],
+          selectedSources: [],
+          baselineScanRunId: null,
+          includeNewResolvedRegressed: false,
+        },
+        null,
+        2,
+      ),
       formatVersion: 2,
       generatedAt: now,
       updatedAt: now,
@@ -251,6 +333,7 @@ export const updateMyReportConfig = mutation({
         args.selectedScanRunIds && args.selectedScanRunIds.length > 0
           ? Array.from(new Set(args.selectedScanRunIds))
           : undefined,
+      selectedFindingIds: report.selectedFindingIds,
       selectedSeverities:
         args.selectedSeverities && args.selectedSeverities.length > 0
           ? Array.from(new Set(args.selectedSeverities))
@@ -270,6 +353,7 @@ export const updateMyReportConfig = mutation({
             args.selectedScanRunIds && args.selectedScanRunIds.length > 0
               ? Array.from(new Set(args.selectedScanRunIds))
               : report.selectedScanRunIds ?? [],
+          selectedFindingIds: report.selectedFindingIds ?? [],
           selectedSeverities:
             args.selectedSeverities && args.selectedSeverities.length > 0
               ? Array.from(new Set(args.selectedSeverities))
@@ -427,6 +511,7 @@ export const getMyReportPreviewData = query({
     ),
     selected: v.object({
       scanRunIds: v.array(v.id("scanRuns")),
+      findingIds: v.array(v.id("findings")),
       severities: v.array(severityValidator),
       sources: v.array(sourceValidator),
     }),
@@ -513,6 +598,10 @@ export const getMyReportPreviewData = query({
         : null;
 
     const findings = [];
+    const selectedFindingIdSet =
+      report.selectedFindingIds && report.selectedFindingIds.length > 0
+        ? new Set(report.selectedFindingIds.map((id) => String(id)))
+        : null;
     const baselineScanRunId = report.baselineScanRunId;
     const baselineRows = baselineScanRunId
       ? await ctx.db
@@ -529,6 +618,12 @@ export const getMyReportPreviewData = query({
         .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", runId))
         .collect();
       for (const row of rows) {
+        if (
+          selectedFindingIdSet &&
+          !selectedFindingIdSet.has(String(row._id))
+        ) {
+          continue;
+        }
         if (severityFilter && !severityFilter.has(row.severity)) continue;
         if (sourceFilter && !sourceFilter.has(row.source)) continue;
         findings.push({
@@ -651,6 +746,7 @@ export const getMyReportPreviewData = query({
       })),
       selected: {
         scanRunIds: selectedRunIds,
+        findingIds: report.selectedFindingIds ?? [],
         severities: report.selectedSeverities ?? [],
         sources: report.selectedSources ?? [],
       },

@@ -23,6 +23,7 @@ import { Label } from "@acme/ui/label";
 type AssetRow = Record<string, unknown> & {
   id: string;
   kind: "url" | "file_pdf";
+  urlScope?: "single_page" | "website";
   title: string;
   source: string;
   status: string;
@@ -47,6 +48,7 @@ export default function AssetsPage() {
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [urlValue, setUrlValue] = useState("");
   const [urlTitle, setUrlTitle] = useState("");
+  const [urlScope, setUrlScope] = useState<"single_page" | "website">("website");
   const [statusMessage, setStatusMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
@@ -77,6 +79,7 @@ export default function AssetsPage() {
         return {
           id: String(asset._id),
           kind: asset.kind,
+          urlScope: asset.urlScope,
           title:
             asset.title ??
             asset.filename ??
@@ -224,6 +227,7 @@ export default function AssetsPage() {
       const result = await createUrlAsset({
         sourceUrl: urlValue,
         title: urlTitle || undefined,
+        scanScope: urlScope,
       });
       setStatusMessage(
         `URL asset added. ${result.discoveredPages.length} pages discovered.`,
@@ -231,6 +235,7 @@ export default function AssetsPage() {
       setUrlDialogOpen(false);
       setUrlValue("");
       setUrlTitle("");
+      setUrlScope("website");
     } catch (error) {
       setStatusMessage(
         error instanceof Error ? error.message : "Failed to add URL.",
@@ -350,6 +355,28 @@ export default function AssetsPage() {
                 onChange={(event) => setUrlValue(event.target.value)}
                 placeholder="https://example.com"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Scan scope</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={urlScope === "single_page" ? "default" : "outline"}
+                  onClick={() => setUrlScope("single_page")}
+                >
+                  Single Page
+                </Button>
+                <Button
+                  type="button"
+                  variant={urlScope === "website" ? "default" : "outline"}
+                  onClick={() => setUrlScope("website")}
+                >
+                  Entire Website
+                </Button>
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Single Page keeps detection and scans to this URL only.
+              </p>
             </div>
           </div>
           <DialogFooter>

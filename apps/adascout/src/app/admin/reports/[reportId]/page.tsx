@@ -41,6 +41,7 @@ interface ReportPreview {
   };
   selected: {
     scanRunIds: Id<"scanRuns">[];
+    findingIds: Id<"findings">[];
     severities: string[];
     sources: string[];
   };
@@ -63,6 +64,7 @@ interface ReportPreview {
     findingId: string;
     title: string;
     severity: string;
+    status?: string;
     ruleId: string;
     source: string;
     target?: string;
@@ -290,6 +292,176 @@ export default function ReportDetailsPage() {
     }, 250);
   };
 
+  const downloadFile = (
+    filename: string,
+    contentType: string,
+    body: string,
+  ) => {
+    const blob = new Blob([body], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const toCsv = (rows: string[][]): string =>
+    rows
+      .map((row) =>
+        row
+          .map((cell) => {
+            const normalized = String(cell);
+            if (
+              normalized.includes(",") ||
+              normalized.includes('"') ||
+              normalized.includes("\n")
+            ) {
+              return `"${normalized.replace(/"/g, '""')}"`;
+            }
+            return normalized;
+          })
+          .join(","),
+      )
+      .join("\n");
+
+  const buildSimpleFindingRows = (): string[][] => {
+    const findings = preview?.findings ?? [];
+    return [
+      [
+        "Finding ID",
+        "Severity",
+        "Status",
+        "Source",
+        "Rule",
+        "Title",
+        "Page URL",
+        "Target",
+        "Description",
+      ],
+      ...findings.map((finding) => [
+        String(finding.findingId),
+        finding.severity,
+        finding.status ?? "open",
+        finding.source,
+        finding.ruleId,
+        finding.title,
+        finding.pageUrl ?? "",
+        finding.target ?? "",
+        finding.description ?? "",
+      ]),
+    ];
+  };
+
+  const buildBrandedRows = (): string[][] => {
+    if (!preview) return [];
+    const reportTitle =
+      name.trim() !== "" ? name.trim() : report.name ?? `Report ${String(reportId)}`;
+    const company = companyName.trim() !== "" ? companyName.trim() : "ADA Scout";
+    const footer = footerText.trim();
+    const findings = preview.findings;
+    return [
+      ["Company", company],
+      ["Report Name", reportTitle],
+      ["Asset", preview.asset.title],
+      ["Asset Source", preview.asset.source ?? ""],
+      ["Profile", preview.profile],
+      ["Generated At", new Date(preview.generatedAt).toLocaleString()],
+      ["Total Findings", String(preview.summary.total)],
+      ["Critical", String(preview.summary.critical)],
+      ["Serious", String(preview.summary.serious)],
+      ["Moderate", String(preview.summary.moderate)],
+      ["Minor", String(preview.summary.minor)],
+      ["Manual Review", String(preview.summary.manualReviewRequired)],
+      ...(footer ? [["Footer", footer]] : []),
+      [],
+      [
+        "Finding ID",
+        "Severity",
+        "Status",
+        "Source",
+        "Rule",
+        "Title",
+        "Page URL",
+        "Target",
+        "Description",
+      ],
+      ...findings.map((finding) => [
+        String(finding.findingId),
+        finding.severity,
+        finding.status ?? "open",
+        finding.source,
+        finding.ruleId,
+        finding.title,
+        finding.pageUrl ?? "",
+        finding.target ?? "",
+        finding.description ?? "",
+      ]),
+    ];
+  };
+
+  const toExcelHtml = (rows: string[][], title: string): string => {
+    const escapeHtml = (value: string): string =>
+      value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const tableRows = rows
+      .map(
+        (row, index) =>
+          `<tr>${row
+            .map((cell) =>
+              index === 0
+                ? `<th>${escapeHtml(String(cell))}</th>`
+                : `<td>${escapeHtml(String(cell))}</td>`,
+            )
+            .join("")}</tr>`,
+      )
+      .join("");
+    return `<!doctype html><html><head><meta charset="utf-8"/><title>${escapeHtml(
+      title,
+    )}</title></head><body><table border="1">${tableRows}</table></body></html>`;
+  };
+
+  const handleExportSimpleCsv = () => {
+    const rows = buildSimpleFindingRows();
+    downloadFile(
+      `adascout-findings-simple-${String(reportId)}.csv`,
+      "text/csv;charset=utf-8",
+      toCsv(rows),
+    );
+  };
+
+  const handleExportSimpleExcel = () => {
+    const rows = buildSimpleFindingRows();
+    downloadFile(
+      `adascout-findings-simple-${String(reportId)}.xls`,
+      "application/vnd.ms-excel;charset=utf-8",
+      toExcelHtml(rows, "Simple Findings Export"),
+    );
+  };
+
+  const handleExportBrandedCsv = () => {
+    const rows = buildBrandedRows();
+    downloadFile(
+      `adascout-report-branded-${String(reportId)}.csv`,
+      "text/csv;charset=utf-8",
+      toCsv(rows),
+    );
+  };
+
+  const handleExportBrandedExcel = () => {
+    const rows = buildBrandedRows();
+    downloadFile(
+      `adascout-report-branded-${String(reportId)}.xls`,
+      "application/vnd.ms-excel;charset=utf-8",
+      toExcelHtml(rows, "Branded Report Export"),
+    );
+  };
+
   return (
     <>
       <section className="w-full space-y-4 p-4 print:hidden">
@@ -322,6 +494,34 @@ export default function ReportDetailsPage() {
           </Button>
           <Button variant="outline" onClick={handleGeneratePdf}>
             Generate PDF
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExportSimpleCsv}
+            disabled={!preview}
+          >
+            Export CSV (Findings)
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExportSimpleExcel}
+            disabled={!preview}
+          >
+            Export Excel (Findings)
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExportBrandedCsv}
+            disabled={!preview}
+          >
+            Export CSV (Branded)
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExportBrandedExcel}
+            disabled={!preview}
+          >
+            Export Excel (Branded)
           </Button>
         </div>
         {statusMessage ? <p className="text-muted-foreground mt-3 text-xs">{statusMessage}</p> : null}

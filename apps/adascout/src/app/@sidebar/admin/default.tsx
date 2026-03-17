@@ -9,7 +9,6 @@ import {
   FolderSearch2,
   Home,
   LayoutDashboard,
-  ShieldCheck,
 } from "lucide-react";
 
 import {
@@ -29,7 +28,6 @@ const NAV_ICON_CLASS =
 const adminLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/assets", label: "Assets", icon: FolderSearch2 },
-  { href: "/admin/scans", label: "Scans", icon: ShieldCheck },
   { href: "/admin/reports", label: "Reports", icon: FileCheck2 },
   { href: "/admin/workflows", label: "Workflows", icon: FileText },
 ] as const;

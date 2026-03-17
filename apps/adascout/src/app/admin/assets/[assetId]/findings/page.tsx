@@ -1,14 +1,13 @@
 "use client";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 
 import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { Badge } from "@acme/ui/badge";
 import { Button } from "@acme/ui/button";
 import { EntityList } from "@acme/ui/entity-list";
 
@@ -60,6 +59,11 @@ const getStatusColorClass = (status: string) => {
 };
 
 export default function AssetFindingsPage() {
+  const router = useRouter();
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [reportActionMessage, setReportActionMessage] = useState<string | null>(
+    null,
+  );
   const severityRank = (severity: FindingRow["severity"]) => {
     if (severity === "critical") return 5;
     if (severity === "serious") return 4;
@@ -77,6 +81,9 @@ export default function AssetFindingsPage() {
 
   const updateFindingStatus = useMutation(api.findings.updateMyFindingStatus);
   const assignFinding = useMutation(api.findings.assignMyFinding);
+  const createReportFromFindings = useMutation(
+    api.reports.createMyReportFromFindingIds,
+  );
   const actor = useQuery(api.findings.getMyFindingActor, {}) as
     | { userId: Id<"users"> }
     | undefined;
@@ -280,10 +287,58 @@ export default function AssetFindingsPage() {
         defaultViewMode="list"
         viewModes={[]}
         enableSearch
+        enableRowSelection
+        bulkActions={({ selectedItems, clearSelection }) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={!assetId || selectedItems.length === 0 || isGeneratingReport}
+              onClick={async () => {
+                if (!assetId || selectedItems.length === 0) return;
+                const findingIds = Array.from(
+                  new Set(
+                    selectedItems
+                      .map((item) => String(item.id))
+                      .filter((value) => value.length > 0),
+                  ),
+                ) as Id<"findings">[];
+                if (findingIds.length === 0) return;
+                try {
+                  setIsGeneratingReport(true);
+                  setReportActionMessage(null);
+                  const reportId = await createReportFromFindings({
+                    assetId,
+                    findingIds,
+                  });
+                  clearSelection();
+                  router.push(`/admin/reports/${String(reportId)}`);
+                } catch (error) {
+                  setReportActionMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to generate report.",
+                  );
+                } finally {
+                  setIsGeneratingReport(false);
+                }
+              }}
+            >
+              {isGeneratingReport
+                ? "Generating..."
+                : `Generate Report (${selectedItems.length})`}
+            </Button>
+            <Button size="sm" variant="outline" onClick={clearSelection}>
+              Clear Selection
+            </Button>
+          </div>
+        )}
         isLoading={allFindings === undefined}
         getRowId={(row) => row.id}
         initialSort={{ id: "severity", direction: "desc" }}
       />
+      {reportActionMessage ? (
+        <p className="text-muted-foreground mt-3 text-xs">{reportActionMessage}</p>
+      ) : null}
     </div>
   );
 }
