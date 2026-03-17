@@ -1047,6 +1047,7 @@ export const discoverWebsiteUrls = async (
   // non-browser fallback, fetch sitemap content through a text mirror endpoint.
   if (discovered.size <= 1 && discovered.size < maxUrls) {
     const proxySitemapQueue = [
+      normalizedSeed,
       `${origin}/sitemap.xml`,
       `${origin}/sitemap_index.xml`,
       `${origin}/robots.txt`,
@@ -1408,18 +1409,41 @@ export const discoverAndQueueSitePages = internalAction({
       const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
       pageUrls = await discoverWebsiteUrls(asset.normalizedUrl, maxUrls);
       if (pageUrls.length <= 1) {
-        const stagehandDiscovered = await discoverWebsiteUrlsViaStagehand(
-          ctx,
-          asset.normalizedUrl,
-          maxUrls,
-        );
-        if (stagehandDiscovered.length > pageUrls.length) {
-          pageUrls = stagehandDiscovered;
-          logScanPhase({
-            event: "discover_stagehand_fallback_used",
-            scanRunId: args.scanRunId,
-            discoveredUrls: pageUrls.length,
-          });
+        const discoveryJobId = (await ctx.runMutation(
+          internal.scans.enqueueExternalDiscoveryJob,
+          {
+            assetId: scanRun.assetId,
+            sourceUrl: asset.normalizedUrl,
+            maxUrls,
+          },
+        )) as Id<"externalDiscoveryJobs">;
+        const pollDeadlineMs = nowMs() + 45_000;
+        while (nowMs() < pollDeadlineMs) {
+          const job = (await ctx.runQuery(internal.scans.getExternalDiscoveryJob, {
+            jobId: discoveryJobId,
+          })) as
+            | {
+                status: "queued" | "running" | "completed" | "failed";
+                discoveredUrls?: string[];
+              }
+            | null;
+          if (!job) break;
+          if (job.status === "completed") {
+            if (
+              Array.isArray(job.discoveredUrls) &&
+              job.discoveredUrls.length > pageUrls.length
+            ) {
+              pageUrls = job.discoveredUrls;
+              logScanPhase({
+                event: "discover_external_worker_fallback_used",
+                scanRunId: args.scanRunId,
+                discoveredUrls: pageUrls.length,
+              });
+            }
+            break;
+          }
+          if (job.status === "failed") break;
+          await sleep(1_000);
         }
       }
     }
@@ -1843,17 +1867,7 @@ export const e2eWebsiteScanSmoke = internalAction({
   handler: async (ctx, args) => {
     const maxPages = Math.max(1, Math.min(500, Number(args.maxPages ?? 100)));
     const samplePages = Math.max(1, Math.min(5, Number(args.samplePages ?? 1)));
-    let discovered = await discoverWebsiteUrls(args.url, maxPages);
-    if (discovered.length <= 1) {
-      const stagehandDiscovered = await discoverWebsiteUrlsViaStagehand(
-        ctx,
-        args.url,
-        maxPages,
-      );
-      if (stagehandDiscovered.length > discovered.length) {
-        discovered = stagehandDiscovered;
-      }
-    }
+    const discovered = await discoverWebsiteUrls(args.url, maxPages);
     const sampled = discovered.slice(0, samplePages);
     const pages: {
       url: string;
@@ -1895,5 +1909,17 @@ export const e2eWebsiteScanSmoke = internalAction({
       failedPagesInSamples,
       pages,
     };
+  },
+});
+
+export const sleepForWorkflow = internalAction({
+  args: {
+    ms: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (_ctx, args) => {
+    const delayMs = Math.max(50, Math.min(5_000, Number(args.ms ?? 750)));
+    await sleep(delayMs);
+    return null;
   },
 });

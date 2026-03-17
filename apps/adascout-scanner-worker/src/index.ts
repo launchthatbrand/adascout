@@ -39,6 +39,13 @@ type ClaimResponse = {
   queueWaitMs: number;
 } | null;
 
+type DiscoveryClaimResponse = {
+  jobId: string;
+  assetId: string;
+  sourceUrl: string;
+  maxUrls: number;
+} | null;
+
 type WorkerFinding = {
   source: "axe";
   severity: "critical" | "serious" | "moderate" | "minor" | "info";
@@ -48,6 +55,7 @@ type WorkerFinding = {
   help?: string;
   helpUrl?: string;
   target?: string;
+  pageRegion?: "header" | "footer" | "body";
   pageUrl?: string;
   codeSnippet?: string;
   manualReviewRequired?: boolean;
@@ -270,6 +278,42 @@ const collectNavigationDiagnostics = async (
   if (haystack.includes("forbidden")) botSignals.push("forbidden");
 
   return { finalUrl, pageTitle, bodySnippet, botSignals };
+};
+
+const detectPageRegionForSelector = async (
+  page: {
+    evaluate: <T, A>(fn: (arg: A) => T, arg: A) => Promise<T>;
+  },
+  selector: string,
+): Promise<"header" | "footer" | "body"> => {
+  const normalizedSelector = selector.trim();
+  if (normalizedSelector.length === 0) {
+    return "body";
+  }
+  return await page
+    .evaluate((selectorArg) => {
+      const fallback: "header" | "footer" | "body" = "body";
+      const globalValue = globalThis as unknown as {
+        document?: {
+          querySelector: (selector: string) => {
+            closest: (selector: string) => unknown;
+          } | null;
+        };
+      };
+      const doc = globalValue.document;
+      if (!doc) return fallback;
+      let element: { closest: (selector: string) => unknown } | null = null;
+      try {
+        element = doc.querySelector(selectorArg);
+      } catch {
+        return fallback;
+      }
+      if (!element) return fallback;
+      if (element.closest("header")) return "header" as const;
+      if (element.closest("footer")) return "footer" as const;
+      return fallback;
+    }, normalizedSelector)
+    .catch(() => "body");
 };
 
 const waitForVisualReadiness = async (
@@ -871,6 +915,47 @@ const runAxeScanAttempt = async (
   const scanResult: PageScanResult = {
     findings: [],
   };
+
+  const navigateWithTimeoutFallback = async (
+    stage: "first" | "retry",
+  ): Promise<{ status: number; fallbackUsed: boolean }> => {
+    try {
+      const response = await page.goto(pageUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: config.SCANNER_PAGE_TIMEOUT_MS,
+      });
+      return {
+        status: response?.status() ?? 0,
+        fallbackUsed: false,
+      };
+    } catch (error) {
+      if (classifyError(error) !== "timeout") {
+        throw error;
+      }
+      console.warn(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "scan_navigation_timeout_fallback",
+          pageUrl,
+          attemptType,
+          stage,
+          timeoutMs: config.SCANNER_PAGE_TIMEOUT_MS,
+          fallbackWaitUntil: "commit",
+          originalError: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      const fallbackResponse = await page.goto(pageUrl, {
+        waitUntil: "commit",
+        timeout: Math.max(8_000, Math.min(20_000, config.SCANNER_PAGE_TIMEOUT_MS)),
+      });
+      await page.waitForLoadState("domcontentloaded", { timeout: 4_000 }).catch(() => undefined);
+      return {
+        status: fallbackResponse?.status() ?? 0,
+        fallbackUsed: true,
+      };
+    }
+  };
+
   try {
     console.info(
       JSON.stringify({
@@ -881,11 +966,8 @@ const runAxeScanAttempt = async (
         proxyServer,
       }),
     );
-    const firstResponse = await page.goto(pageUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: config.SCANNER_PAGE_TIMEOUT_MS,
-    });
-    const firstStatus = firstResponse?.status() ?? 0;
+    const firstNavigation = await navigateWithTimeoutFallback("first");
+    const firstStatus = firstNavigation.status;
     const firstDiagnostics = await collectNavigationDiagnostics(page);
     console.info(
       JSON.stringify({
@@ -895,17 +977,15 @@ const runAxeScanAttempt = async (
         attemptType,
         stage: "first",
         status: firstStatus,
+        fallbackUsed: firstNavigation.fallbackUsed,
         ...firstDiagnostics,
       }),
     );
     if (firstStatus === 401 || firstStatus === 403 || firstStatus === 429) {
       // One retry for transient bot/rate-limit gates.
       await page.waitForTimeout(1200);
-      const retryResponse = await page.goto(pageUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: config.SCANNER_PAGE_TIMEOUT_MS,
-      });
-      const retryStatus = retryResponse?.status() ?? 0;
+      const retryNavigation = await navigateWithTimeoutFallback("retry");
+      const retryStatus = retryNavigation.status;
       const retryDiagnostics = await collectNavigationDiagnostics(page);
       console.info(
         JSON.stringify({
@@ -915,6 +995,7 @@ const runAxeScanAttempt = async (
           attemptType,
           stage: "retry",
           status: retryStatus,
+          fallbackUsed: retryNavigation.fallbackUsed,
           ...retryDiagnostics,
         }),
       );
@@ -1020,6 +1101,22 @@ const runAxeScanAttempt = async (
     for (const [index, finding] of scanResult.findings.entries()) {
       finding.highlightId = index + 1;
     }
+    const regionBySelector = new Map<string, "header" | "footer" | "body">();
+    for (const finding of scanResult.findings) {
+      const selector = String(finding.selectorSnapshot ?? finding.target ?? "").trim();
+      if (selector.length === 0) {
+        finding.pageRegion = "body";
+        continue;
+      }
+      const existingRegion = regionBySelector.get(selector);
+      if (existingRegion) {
+        finding.pageRegion = existingRegion;
+        continue;
+      }
+      const region = await detectPageRegionForSelector(page, selector);
+      regionBySelector.set(selector, region);
+      finding.pageRegion = region;
+    }
     const highlightEntries: Array<HighlightEntry> = scanResult.findings
       .map((finding) => ({
         selector: String(finding.selectorSnapshot ?? finding.target ?? "").trim(),
@@ -1116,8 +1213,12 @@ const runAxeScanAttempt = async (
 
 const isBotProtectionError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
+  const category = classifyError(error);
   return (
-    message.includes("bot_protection_http_") || classifyError(error) === "bot_protection"
+    message.includes("bot_protection_http_") ||
+    category === "bot_protection" ||
+    category === "timeout" ||
+    category === "network"
   );
 };
 
@@ -1156,6 +1257,258 @@ const runAxeScan = async (pageUrl: string): Promise<PageScanResult> => {
       }),
     );
     return await runAxeScanAttempt(pageUrl, proxy);
+  }
+};
+
+const normalizeDiscoveredUrl = (rawUrl: string, origin: string): string | null => {
+  try {
+    const parsed = new URL(rawUrl, origin);
+    if (parsed.origin !== origin) return null;
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
+    parsed.hash = "";
+    parsed.pathname =
+      parsed.pathname === "/" ? "/" : parsed.pathname.replace(/\/+$/, "") || "/";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
+
+const DISCOVERY_STATIC_EXTENSIONS = new Set([
+  ".css",
+  ".js",
+  ".mjs",
+  ".json",
+  ".xml",
+  ".txt",
+  ".map",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".svg",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".eot",
+  ".otf",
+  ".mp4",
+  ".webm",
+  ".mp3",
+  ".wav",
+  ".zip",
+  ".gz",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+  ".eps",
+]);
+
+const isLikelyHtmlDiscoveryUrl = (normalizedUrl: string): boolean => {
+  try {
+    const parsed = new URL(normalizedUrl);
+    const pathname = parsed.pathname.toLowerCase();
+    if (pathname.endsWith("/") || pathname === "") return true;
+    const dotIndex = pathname.lastIndexOf(".");
+    if (dotIndex === -1) return true;
+    const ext = pathname.slice(dotIndex);
+    return !DISCOVERY_STATIC_EXTENSIONS.has(ext);
+  } catch {
+    return false;
+  }
+};
+
+const runDiscoveryAttempt = async (
+  sourceUrl: string,
+  maxUrls: number,
+  proxy: BrowserProxyConfig | null,
+): Promise<string[]> => {
+  const browser = await chromium.connectOverCDP(config.BROWSERLESS_CDP_URL);
+  let fingerprintProfile: BrowserFingerprintProfile | null = null;
+  if (config.SCANNER_FINGERPRINT_ENABLED) {
+    try {
+      fingerprintProfile = getFingerprintProfile();
+    } catch {
+      fingerprintProfile = null;
+    }
+  }
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    viewport: fingerprintProfile?.viewport ?? { width: 1600, height: 1200 },
+    userAgent:
+      fingerprintProfile?.userAgent ??
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    locale: config.SCANNER_FINGERPRINT_LOCALE,
+    timezoneId: config.SCANNER_FINGERPRINT_TIMEZONE,
+    ...(proxy ? { proxy } : {}),
+  });
+  if (fingerprintProfile) {
+    await fingerprintInjector
+      .attachFingerprintToPlaywright(
+        context as unknown as Parameters<
+          FingerprintInjector["attachFingerprintToPlaywright"]
+        >[0],
+        fingerprintProfile.fingerprint as unknown as Parameters<
+          FingerprintInjector["attachFingerprintToPlaywright"]
+        >[1],
+      )
+      .catch(() => undefined);
+  }
+  const page = await context.newPage();
+  const discovered = new Set<string>();
+  const queue: string[] = [];
+  const visited = new Set<string>();
+  try {
+    const normalizedSeed = normalizeDiscoveredUrl(sourceUrl, new URL(sourceUrl).origin);
+    if (!normalizedSeed) {
+      return [];
+    }
+    const origin = new URL(normalizedSeed).origin;
+    queue.push(normalizedSeed);
+    discovered.add(normalizedSeed);
+    while (queue.length > 0 && discovered.size < maxUrls) {
+      const current = queue.shift();
+      if (!current || visited.has(current)) continue;
+      visited.add(current);
+      let response: Awaited<ReturnType<typeof page.goto>> | null = null;
+      try {
+        response = await page.goto(current, {
+          waitUntil: "domcontentloaded",
+          timeout: config.SCANNER_PAGE_TIMEOUT_MS,
+        });
+      } catch (error) {
+        if (classifyError(error) !== "timeout") {
+          // Some links are downloads or blocked navigations; skip and continue crawling.
+          continue;
+        }
+        // Timeout fallback: still attempt to commit navigation so we can extract links.
+        try {
+          response = await page.goto(current, {
+            waitUntil: "commit",
+            timeout: Math.max(8_000, Math.min(20_000, config.SCANNER_PAGE_TIMEOUT_MS)),
+          });
+          await page.waitForLoadState("domcontentloaded", { timeout: 4_000 }).catch(() => undefined);
+          console.info(
+            JSON.stringify({
+              component: "adascout-axe-worker",
+              event: "discovery_navigation_timeout_fallback",
+              sourceUrl,
+              current,
+            }),
+          );
+        } catch {
+          continue;
+        }
+      }
+      const status = response?.status() ?? 0;
+      if (status >= 400) {
+        continue;
+      }
+      if (config.SCANNER_SETTLE_MS > 0) {
+        await page.waitForTimeout(config.SCANNER_SETTLE_MS);
+      }
+      const hrefs = await page.evaluate(() => {
+        const doc = (globalThis as unknown as {
+          document?: {
+            querySelectorAll: (selector: string) => Iterable<unknown>;
+          };
+        }).document;
+        if (!doc) return [] as string[];
+        return Array.from(doc.querySelectorAll("a[href]"))
+          .map((element) =>
+            (element as { getAttribute?: (name: string) => string | null }).getAttribute?.(
+              "href",
+            ) ?? "",
+          )
+          .filter((value) => value.trim().length > 0);
+      });
+      for (const href of hrefs) {
+        const normalized = normalizeDiscoveredUrl(href, origin);
+        if (!normalized) continue;
+        if (!isLikelyHtmlDiscoveryUrl(normalized)) continue;
+        if (discovered.has(normalized)) continue;
+        discovered.add(normalized);
+        if (discovered.size >= maxUrls) break;
+        if (!visited.has(normalized) && queue.length < maxUrls * 2) {
+          queue.push(normalized);
+        }
+      }
+    }
+    return Array.from(discovered).slice(0, maxUrls);
+  } finally {
+    await context.close().catch(() => undefined);
+    await browser.close().catch(() => undefined);
+  }
+};
+
+const discoverWithBrowserless = async (sourceUrl: string, maxUrls: number): Promise<string[]> => {
+  const boundedMax = Math.max(1, Math.min(500, maxUrls));
+  if (config.SCANNER_PROXY_MODE === "always" && hasProxyConfig) {
+    return await runDiscoveryAttempt(sourceUrl, boundedMax, pickProxy());
+  }
+  try {
+    return await runDiscoveryAttempt(sourceUrl, boundedMax, null);
+  } catch (error) {
+    const shouldRetryWithProxy =
+      config.SCANNER_PROXY_MODE === "fallback" &&
+      hasProxyConfig &&
+      isBotProtectionError(error);
+    if (!shouldRetryWithProxy) {
+      throw error;
+    }
+    return await runDiscoveryAttempt(sourceUrl, boundedMax, pickProxy());
+  }
+};
+
+const processOneDiscoveryJob = async (): Promise<boolean> => {
+  const claim = await callAction<DiscoveryClaimResponse>(
+    "scans:claimNextExternalDiscoveryJob",
+    {
+      workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+    },
+  );
+  if (!claim) return false;
+  try {
+    const pageUrls = await discoverWithBrowserless(claim.sourceUrl, claim.maxUrls);
+    await callAction<null>("scans:submitExternalDiscoveredPages", {
+      workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+      jobId: claim.jobId,
+      pageUrls,
+    });
+    console.info(
+      JSON.stringify({
+        component: "adascout-axe-worker",
+        event: "external_discovery_completed",
+        jobId: claim.jobId,
+        sourceUrl: claim.sourceUrl,
+        discoveredCount: pageUrls.length,
+      }),
+    );
+    return true;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await callAction<null>("scans:failExternalDiscoveryJob", {
+      workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+      jobId: claim.jobId,
+      errorMessage,
+    }).catch(() => undefined);
+    state.lastError = errorMessage;
+    console.warn(
+      JSON.stringify({
+        component: "adascout-axe-worker",
+        event: "external_discovery_failed",
+        jobId: claim.jobId,
+        sourceUrl: claim.sourceUrl,
+        errorMessage,
+      }),
+    );
+    return true;
   }
 };
 
@@ -1205,10 +1558,17 @@ const processOnePage = async (): Promise<boolean> => {
 const runWorkerLoop = async (workerIndex: number): Promise<void> => {
   while (true) {
     state.inFlight += 1;
-    const didWork = await processOnePage().catch((error) => {
-      state.lastError = error instanceof Error ? error.message : String(error);
-      return false;
-    });
+    const didWork = await (async () => {
+      const didDiscoveryWork = await processOneDiscoveryJob().catch((error) => {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        return false;
+      });
+      if (didDiscoveryWork) return true;
+      return await processOnePage().catch((error) => {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        return false;
+      });
+    })();
     state.inFlight = Math.max(0, state.inFlight - 1);
     if (!didWork) {
       await sleep(config.SCANNER_IDLE_SLEEP_MS);

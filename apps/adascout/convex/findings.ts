@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { requireUserId } from "./helpers";
 import { computeEvidenceHash } from "./scans";
 import {
+  findingPageRegionValidator,
   findingSeverityValidator,
   findingSourceValidator,
   findingStatusValidator,
@@ -23,6 +24,7 @@ const findingRowValidator = v.object({
   help: v.optional(v.string()),
   helpUrl: v.optional(v.string()),
   target: v.optional(v.string()),
+  pageRegion: v.optional(findingPageRegionValidator),
   pageUrl: v.optional(v.string()),
   pageNumber: v.optional(v.number()),
   codeSnippet: v.optional(v.string()),

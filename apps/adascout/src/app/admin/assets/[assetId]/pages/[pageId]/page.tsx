@@ -75,17 +75,14 @@ export default function PageDetailPage() {
       : undefined;
   const pageId =
     typeof pageIdParam === "string"
-      ? (pageIdParam as Id<"scanRunPages">)
+      ? (pageIdParam as Id<"discoveredPages">)
       : undefined;
 
   const page = useQuery(
-    api.scans.getMyScanRunPage,
-    pageId ? { pageId } : "skip",
+    api.scans.getMyAssetPageDetail,
+    assetId && pageId ? { assetId, pageId } : "skip",
   );
-  const pageScreenshotUrl = useQuery(
-    api.scans.getMyScanRunPageScreenshotUrl,
-    pageId ? { pageId } : "skip",
-  );
+  const pageScreenshotUrl = page?.screenshotUrl ?? null;
   const createScanRun = useMutation(api.scans.createScanRun);
   const [isRescanning, setIsRescanning] = useState(false);
   const [rescanMessage, setRescanMessage] = useState("");
@@ -99,10 +96,10 @@ export default function PageDetailPage() {
 
   const findings = useQuery(
     api.findings.listMyFindingsByScanRun,
-    page?.scanRunId && pageId
+    page?.scanRunId && page?.latestScanRunPageId
       ? {
-          scanRunId: page.scanRunId,
-          scanRunPageId: pageId,
+          scanRunId: page.scanRunId as Id<"scanRuns">,
+          scanRunPageId: page.latestScanRunPageId as Id<"scanRunPages">,
           limit: 500,
         }
       : "skip",
@@ -124,19 +121,19 @@ export default function PageDetailPage() {
           rawFinding.screenshotViewportHeight,
         );
         return {
-          id: String(finding._id),
-          title: finding.title,
-          status: finding.status ?? "open",
-          severity: finding.severity,
-          severityRank: severityRank(finding.severity),
-          source: finding.source,
-          ruleId: finding.ruleId,
-          pageUrl: finding.pageUrl,
-          target: finding.target,
-          description: finding.description,
-          helpUrl: finding.helpUrl,
-          assignee: finding.assignee ? String(finding.assignee) : undefined,
-          dueAt: finding.dueAt,
+        id: String(finding._id),
+        title: finding.title,
+        status: finding.status ?? "open",
+        severity: finding.severity,
+        severityRank: severityRank(finding.severity),
+        source: finding.source,
+        ruleId: finding.ruleId,
+        pageUrl: finding.pageUrl,
+        target: finding.target,
+        description: finding.description,
+        helpUrl: finding.helpUrl,
+        assignee: finding.assignee ? String(finding.assignee) : undefined,
+        dueAt: finding.dueAt,
           highlightId,
           bboxX,
           bboxY,
@@ -339,16 +336,16 @@ export default function PageDetailPage() {
             </div>
             <Badge
               variant={
-                page.status === "failed"
+                (page.status ?? page.lastScanStatus ?? "queued") === "failed"
                   ? "destructive"
-                  : page.status === "completed"
+                  : (page.status ?? page.lastScanStatus ?? "queued") === "completed"
                     ? "default"
-                    : page.status === "running"
+                    : (page.status ?? page.lastScanStatus ?? "queued") === "running"
                       ? "secondary"
                       : "outline"
               }
             >
-              {page.status}
+              {page.status ?? page.lastScanStatus ?? "discovered"}
             </Badge>
           </div>
 
@@ -367,17 +364,19 @@ export default function PageDetailPage() {
             <div>
               <p className="text-muted-foreground">Scan ID</p>
               <p className="font-medium">
-                {String(page.scanRunId).slice(0, 12)}...
+                {page.scanRunId ? `${String(page.scanRunId).slice(0, 12)}...` : "—"}
               </p>
             </div>
             <div>
               <p className="text-muted-foreground">Attempt</p>
-              <p className="font-medium">{page.attempt}</p>
+              <p className="font-medium">{page.attempt ?? 0}</p>
             </div>
             <div>
               <p className="text-muted-foreground">Findings</p>
               <p className="font-medium">
-                {typeof page.findingCount === "number" ? page.findingCount : 0}
+                {typeof page.findingCount === "number"
+                  ? page.findingCount
+                  : (page.lastFindingCount ?? 0)}
               </p>
             </div>
             {page.retryCount !== undefined && page.retryCount > 0 && (
@@ -405,12 +404,14 @@ export default function PageDetailPage() {
             <div>
               <p className="text-muted-foreground">Updated</p>
               <p className="font-medium">
-                {new Date(page.updatedAt).toLocaleString()}
+                {new Date(
+                  page.updatedAt ?? page.lastScannedAt ?? page.discoveredAt,
+                ).toLocaleString()}
               </p>
             </div>
           </div>
 
-          {page.pageScreenshotStorageId && (
+          {pageScreenshotUrl && (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <div>

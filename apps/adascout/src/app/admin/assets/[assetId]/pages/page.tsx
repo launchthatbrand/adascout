@@ -1,7 +1,7 @@
 "use client";
 
 import type { Id } from "@/convex/_generated/dataModel";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
@@ -14,6 +14,7 @@ import { EntityList } from "@acme/ui/entity-list";
 
 type PageRow = Record<string, unknown> & {
   id: string;
+  stableId: boolean;
   url: string;
   status: string;
   attempt: number;
@@ -42,8 +43,16 @@ export default function AssetPagesPage() {
     assetId ? { assetId, limit: 2000 } : "skip",
   );
   const createScanRun = useMutation(api.scans.createScanRun);
+  const normalizeDiscoveredPagesForAsset = useMutation(
+    api.scans.normalizeDiscoveredPagesForAsset,
+  );
   const [isStartingScan, setIsStartingScan] = useState(false);
   const [scanActionMessage, setScanActionMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!assetId) return;
+    void normalizeDiscoveredPagesForAsset({ assetId }).catch(() => undefined);
+  }, [assetId, normalizeDiscoveredPagesForAsset]);
 
   const pageRows = useMemo<PageRow[]>(() => {
     const normalizePageUrl = (value: string): string => {
@@ -66,6 +75,7 @@ export default function AssetPagesPage() {
       const key = normalizePageUrl(row.pageUrl);
       mergedByUrl.set(key, {
         id: String(row._id),
+        stableId: true,
         url: row.pageUrl,
         status: row.lastScanStatus ?? "discovered",
         attempt: 0,
@@ -80,8 +90,10 @@ export default function AssetPagesPage() {
 
     for (const row of allPages ?? []) {
       const key = normalizePageUrl(row.pageUrl);
+      const existing = mergedByUrl.get(key);
       mergedByUrl.set(key, {
-        id: String(row._id),
+        id: existing?.id ?? String(row._id),
+        stableId: existing?.stableId ?? false,
         url: row.pageUrl,
         status: row.status,
         attempt: row.attempt,
@@ -106,7 +118,7 @@ export default function AssetPagesPage() {
         header: "Page URL",
         accessorKey: "url",
         cell: (row: PageRow) => (
-          row.scanRunId ? (
+          row.stableId ? (
             <Link
               href={`/admin/assets/${assetId}/pages/${row.id}`}
               className="text-left break-all underline underline-offset-4"
@@ -176,7 +188,7 @@ export default function AssetPagesPage() {
         accessorKey: "id",
         cell: (row: PageRow) => (
           <div className="flex items-center gap-2">
-            {row.scanRunId ? (
+            {row.stableId ? (
               <Button size="sm" variant="outline" asChild>
                 <Link href={`/admin/assets/${assetId}/pages/${row.id}`}>
                   View

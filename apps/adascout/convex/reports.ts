@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { requireUserId } from "./helpers";
+import { findingPageRegionValidator } from "./scanTypes";
 
 const nowMs = () => Date.now();
 const severityValidator = v.union(
@@ -60,6 +61,22 @@ const reportValidator = v.object({
   markdown: v.string(),
   json: v.string(),
   pdfHtml: v.optional(v.string()),
+});
+
+const reportExportTemplateColumnValidator = v.object({
+  key: v.string(),
+  label: v.string(),
+});
+
+const reportExportTemplateValidator = v.object({
+  _id: v.id("reportExportTemplates"),
+  _creationTime: v.number(),
+  createdBy: v.id("users"),
+  assetId: v.optional(v.id("assets")),
+  name: v.string(),
+  columns: v.array(reportExportTemplateColumnValidator),
+  createdAt: v.number(),
+  updatedAt: v.number(),
 });
 
 interface SummaryFinding {
@@ -534,6 +551,7 @@ export const getMyReportPreviewData = query({
         title: v.string(),
         description: v.optional(v.string()),
         target: v.optional(v.string()),
+        pageRegion: v.optional(findingPageRegionValidator),
         pageUrl: v.optional(v.string()),
         helpUrl: v.optional(v.string()),
         manualReviewRequired: v.optional(v.boolean()),
@@ -557,6 +575,7 @@ export const getMyReportPreviewData = query({
             description: v.optional(v.string()),
             target: v.optional(v.string()),
             helpUrl: v.optional(v.string()),
+            pageRegion: v.optional(findingPageRegionValidator),
           status: v.optional(v.string()),
           }),
         ),
@@ -636,6 +655,7 @@ export const getMyReportPreviewData = query({
           title: row.title,
           description: row.description,
           target: row.target,
+          pageRegion: row.pageRegion,
           pageUrl: row.pageUrl,
           helpUrl: row.helpUrl,
           manualReviewRequired: row.manualReviewRequired,
@@ -674,6 +694,7 @@ export const getMyReportPreviewData = query({
           description?: string;
           target?: string;
           helpUrl?: string;
+          pageRegion?: "header" | "footer" | "body";
           status?: string;
         }[];
       }
@@ -694,6 +715,7 @@ export const getMyReportPreviewData = query({
         description: row.description,
         target: row.target,
         helpUrl: row.helpUrl,
+        pageRegion: row.pageRegion,
         status: row.status,
       });
       current.findingCount += 1;
@@ -761,6 +783,105 @@ export const getMyReportPreviewData = query({
       findings,
       groupedByPage,
     };
+  },
+});
+
+export const listMyReportExportTemplates = query({
+  args: {
+    assetId: v.optional(v.id("assets")),
+  },
+  returns: v.array(reportExportTemplateValidator),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const rows = await ctx.db
+      .query("reportExportTemplates")
+      .withIndex("by_createdBy_updatedAt", (q) => q.eq("createdBy", userId))
+      .order("desc")
+      .take(200);
+    if (!args.assetId) return rows;
+    return rows.filter((row) => !row.assetId || row.assetId === args.assetId);
+  },
+});
+
+export const upsertMyReportExportTemplate = mutation({
+  args: {
+    templateId: v.optional(v.id("reportExportTemplates")),
+    assetId: v.optional(v.id("assets")),
+    name: v.string(),
+    columns: v.array(reportExportTemplateColumnValidator),
+  },
+  returns: reportExportTemplateValidator,
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const name = args.name.trim();
+    if (!name) {
+      throw new ConvexError("Template name is required.");
+    }
+    const columns = args.columns
+      .map((column) => ({
+        key: column.key.trim(),
+        label: column.label.trim() || column.key.trim(),
+      }))
+      .filter((column) => column.key.length > 0);
+    if (columns.length === 0) {
+      throw new ConvexError("At least one export column is required.");
+    }
+    const deduped = new Set<string>();
+    for (const column of columns) {
+      if (deduped.has(column.key)) {
+        throw new ConvexError("Duplicate export columns are not allowed.");
+      }
+      deduped.add(column.key);
+    }
+    if (args.assetId) {
+      const asset = await ctx.db.get(args.assetId);
+      if (!asset || asset.createdBy !== userId) {
+        throw new ConvexError("Asset not found.");
+      }
+    }
+    const now = nowMs();
+    if (args.templateId) {
+      const existing = await ctx.db.get(args.templateId);
+      if (!existing || existing.createdBy !== userId) {
+        throw new ConvexError("Template not found.");
+      }
+      await ctx.db.patch(existing._id, {
+        assetId: args.assetId,
+        name,
+        columns,
+        updatedAt: now,
+      });
+      const updated = await ctx.db.get(existing._id);
+      if (!updated) throw new ConvexError("Template not found.");
+      return updated;
+    }
+    const templateId = await ctx.db.insert("reportExportTemplates", {
+      createdBy: userId,
+      assetId: args.assetId,
+      name,
+      columns,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const inserted = await ctx.db.get(templateId);
+    if (!inserted) throw new ConvexError("Failed to create template.");
+    return inserted;
+  },
+});
+
+export const deleteMyReportExportTemplate = mutation({
+  args: {
+    templateId: v.id("reportExportTemplates"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const existing = await ctx.db.get(args.templateId);
+    if (!existing || existing.createdBy !== userId) {
+      throw new ConvexError("Template not found.");
+    }
+    await ctx.db.delete(args.templateId);
+    return null;
   },
 });
 

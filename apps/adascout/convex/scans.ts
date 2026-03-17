@@ -14,6 +14,7 @@ import {
 import { normalizeHttpUrl, nowMs, requireUserId } from "./helpers";
 import { discoverWebsiteUrls } from "./scanRunner";
 import {
+  findingPageRegionValidator,
   findingSeverityValidator,
   findingSourceValidator,
   findingStatusValidator,
@@ -38,6 +39,13 @@ interface WorkflowStarter {
     args: Record<string, unknown>,
   ) => Promise<string>;
 }
+
+type ExternalDiscoveryJobStatus = "queued" | "running" | "completed" | "failed";
+
+const sleep = async (ms: number) =>
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const workflowStarter = workflow as unknown as WorkflowStarter;
 const websiteScanWorkflowRef = (
@@ -902,6 +910,119 @@ export const getMyScanRunPageScreenshotUrl = query({
   },
 });
 
+export const getMyAssetPageDetail = query({
+  args: {
+    assetId: v.id("assets"),
+    pageId: v.id("discoveredPages"),
+  },
+  returns: v.union(
+    v.object({
+      _id: v.id("discoveredPages"),
+      assetId: v.id("assets"),
+      pageUrl: v.string(),
+      normalizedUrl: v.string(),
+      discoveredAt: v.number(),
+      lastScannedAt: v.optional(v.number()),
+      lastScanStatus: v.optional(scanRunPageStatusValidator),
+      lastFindingCount: v.optional(v.number()),
+      latestScanRunPageId: v.optional(v.id("scanRunPages")),
+      scanRunId: v.optional(v.id("scanRuns")),
+      status: v.optional(scanRunPageStatusValidator),
+      attempt: v.optional(v.number()),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      failedAt: v.optional(v.number()),
+      errorMessage: v.optional(v.string()),
+      findingCount: v.optional(v.number()),
+      retryCount: v.optional(v.number()),
+      terminalErrorCategory: v.optional(v.string()),
+      updatedAt: v.optional(v.number()),
+      pageScreenshotCapturedAt: v.optional(v.number()),
+      screenshotUrl: v.union(v.string(), v.null()),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || asset.createdBy !== userId) {
+      return null;
+    }
+    const discovered = await ctx.db.get(args.pageId);
+    if (!discovered || discovered.assetId !== args.assetId) {
+      return null;
+    }
+
+    const scanRuns = await ctx.db
+      .query("scanRuns")
+      .withIndex("by_asset_createdAt", (q) => q.eq("assetId", args.assetId))
+      .order("desc")
+      .take(200);
+
+    let latestPageRun:
+      | {
+          _id: Id<"scanRunPages">;
+          scanRunId: Id<"scanRuns">;
+          status: "queued" | "running" | "completed" | "failed" | "canceled";
+          attempt: number;
+          startedAt?: number;
+          completedAt?: number;
+          failedAt?: number;
+          errorMessage?: string;
+          findingCount?: number;
+          retryCount?: number;
+          terminalErrorCategory?: string;
+          updatedAt: number;
+          pageScreenshotStorageId?: Id<"_storage">;
+          pageScreenshotCapturedAt?: number;
+        }
+      | null = null;
+
+    for (const run of scanRuns) {
+      const row = await ctx.db
+        .query("scanRunPages")
+        .withIndex("by_scanRun_normalizedUrl", (q) =>
+          q.eq("scanRunId", run._id).eq("normalizedUrl", discovered.normalizedUrl),
+        )
+        .first();
+      if (row) {
+        latestPageRun = row;
+        break;
+      }
+    }
+
+    const screenshotUrl =
+      latestPageRun?.pageScreenshotStorageId
+        ? await ctx.storage.getUrl(latestPageRun.pageScreenshotStorageId)
+        : null;
+
+    return {
+      _id: discovered._id,
+      assetId: discovered.assetId,
+      pageUrl: discovered.pageUrl,
+      normalizedUrl: discovered.normalizedUrl,
+      discoveredAt: discovered.discoveredAt,
+      lastScannedAt: discovered.lastScannedAt,
+      lastScanStatus: discovered.lastScanStatus,
+      lastFindingCount: discovered.lastFindingCount,
+      latestScanRunPageId: latestPageRun?._id,
+      scanRunId: latestPageRun?.scanRunId,
+      status: latestPageRun?.status,
+      attempt: latestPageRun?.attempt,
+      startedAt: latestPageRun?.startedAt,
+      completedAt: latestPageRun?.completedAt,
+      failedAt: latestPageRun?.failedAt,
+      errorMessage: latestPageRun?.errorMessage,
+      findingCount: latestPageRun?.findingCount,
+      retryCount: latestPageRun?.retryCount,
+      terminalErrorCategory: latestPageRun?.terminalErrorCategory,
+      updatedAt: latestPageRun?.updatedAt,
+      pageScreenshotCapturedAt: latestPageRun?.pageScreenshotCapturedAt,
+      screenshotUrl,
+    };
+  },
+});
+
 const recomputeScanRunProgress = async (
   ctx: MutationCtx,
   scanRunId: Id<"scanRuns">,
@@ -1218,6 +1339,66 @@ export const isScanRunCanceledForWorkflow = internalMutation({
   },
 });
 
+export const getScanRunProgressForWorkflow = internalMutation({
+  args: {
+    scanRunId: v.id("scanRuns"),
+    pageRunIds: v.optional(v.array(v.id("scanRunPages"))),
+  },
+  returns: v.object({
+    status: scanRunStatusValidator,
+    totalPages: v.number(),
+    queuedPages: v.number(),
+    runningPages: v.number(),
+    completedPages: v.number(),
+    failedPages: v.number(),
+    canceledPages: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const scanRun = await ctx.db.get(args.scanRunId);
+    if (!scanRun) {
+      throw new ConvexError("Scan run not found.");
+    }
+    const rows = args.pageRunIds?.length
+      ? (
+          await Promise.all(args.pageRunIds.map(async (pageRunId) => await ctx.db.get(pageRunId)))
+        ).filter(
+          (row): row is NonNullable<typeof row> => Boolean(row && row.scanRunId === args.scanRunId),
+        )
+      : await ctx.db
+          .query("scanRunPages")
+          .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+          .collect();
+
+    let queuedPages = 0;
+    let runningPages = 0;
+    let completedPages = 0;
+    let failedPages = 0;
+    let canceledPages = 0;
+
+    for (const row of rows) {
+      if (row.status === "queued") queuedPages += 1;
+      if (row.status === "running") runningPages += 1;
+      if (row.status === "completed") completedPages += 1;
+      if (row.status === "failed") failedPages += 1;
+      if (row.status === "canceled") canceledPages += 1;
+    }
+
+    const totalPages = rows.length;
+    const status =
+      queuedPages > 0 || runningPages > 0 ? ("running" as const) : scanRun.status;
+
+    return {
+      status,
+      totalPages,
+      queuedPages,
+      runningPages,
+      completedPages,
+      failedPages,
+      canceledPages,
+    };
+  },
+});
+
 export const markScanRunPageRunning = internalMutation({
   args: {
     pageRunId: v.id("scanRunPages"),
@@ -1387,6 +1568,7 @@ export const replaceFindingsForRun = internalMutation({
         help: v.optional(v.string()),
         helpUrl: v.optional(v.string()),
         target: v.optional(v.string()),
+        pageRegion: v.optional(findingPageRegionValidator),
         pageUrl: v.optional(v.string()),
         pageNumber: v.optional(v.number()),
         codeSnippet: v.optional(v.string()),
@@ -1468,6 +1650,7 @@ export const replaceFindingsForPage = internalMutation({
         help: v.optional(v.string()),
         helpUrl: v.optional(v.string()),
         target: v.optional(v.string()),
+        pageRegion: v.optional(findingPageRegionValidator),
         pageUrl: v.optional(v.string()),
         pageNumber: v.optional(v.number()),
         codeSnippet: v.optional(v.string()),
@@ -1909,12 +2092,84 @@ export const detectPages = action({
       }),
     );
 
-    const scopedPageUrls =
+    let scopedPageUrls =
       asset.urlScope === "single_page"
         ? [normalizeHttpUrl(asset.normalizedUrl ?? asset.sourceUrl)]
         : await discoverWebsiteUrls(asset.sourceUrl, 500, {
             sitemapOnly: true,
           });
+
+    if (asset.urlScope !== "single_page" && scopedPageUrls.length <= 1) {
+      // Before delegating to external browser discovery, attempt full HTTP crawl
+      // (still non-browser) so local dev works even when remote worker is offline.
+      const httpCrawlUrls = await discoverWebsiteUrls(asset.sourceUrl, 500, {
+        sitemapOnly: false,
+      });
+      if (httpCrawlUrls.length > scopedPageUrls.length) {
+        scopedPageUrls = httpCrawlUrls;
+        console.info(
+          JSON.stringify({
+            component: "adascout-scan",
+            event: "detect_pages_http_crawl_fallback_used",
+            assetId: args.assetId,
+            discoveredCount: scopedPageUrls.length,
+          }),
+        );
+      }
+    }
+
+    if (asset.urlScope !== "single_page" && scopedPageUrls.length <= 1) {
+      const discoveryJobId = (await ctx.runMutation(
+        internal.scans.enqueueExternalDiscoveryJob,
+        {
+          assetId: args.assetId,
+          sourceUrl: asset.sourceUrl,
+          maxUrls: 500,
+        },
+      )) as Id<"externalDiscoveryJobs">;
+      const pollDeadlineMs = nowMs() + 45_000;
+      while (nowMs() < pollDeadlineMs) {
+        const job = (await ctx.runQuery(internal.scans.getExternalDiscoveryJob, {
+          jobId: discoveryJobId,
+        })) as
+          | {
+              status: ExternalDiscoveryJobStatus;
+              discoveredUrls?: string[];
+              errorMessage?: string;
+            }
+          | null;
+        if (!job) break;
+        if (job.status === "completed") {
+          if (
+            Array.isArray(job.discoveredUrls) &&
+            job.discoveredUrls.length > scopedPageUrls.length
+          ) {
+            scopedPageUrls = job.discoveredUrls;
+            console.info(
+              JSON.stringify({
+                component: "adascout-scan",
+                event: "detect_pages_external_discovery_used",
+                assetId: args.assetId,
+                discoveredCount: scopedPageUrls.length,
+              }),
+            );
+          }
+          break;
+        }
+        if (job.status === "failed") {
+          console.warn(
+            JSON.stringify({
+              component: "adascout-scan",
+              event: "detect_pages_external_discovery_failed",
+              assetId: args.assetId,
+              errorMessage: job.errorMessage ?? "unknown error",
+            }),
+          );
+          break;
+        }
+        await sleep(1_000);
+      }
+    }
     const result = (await ctx.runMutation(internal.scans.upsertDiscoveredPages, {
       assetId: args.assetId,
       pageUrls: scopedPageUrls,
@@ -2057,6 +2312,61 @@ export const upsertDiscoveredPages = internalMutation({
   },
 });
 
+export const enqueueExternalDiscoveryJob = internalMutation({
+  args: {
+    assetId: v.id("assets"),
+    sourceUrl: v.string(),
+    maxUrls: v.number(),
+  },
+  returns: v.id("externalDiscoveryJobs"),
+  handler: async (ctx, args) => {
+    const now = nowMs();
+    const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
+    return await ctx.db.insert("externalDiscoveryJobs", {
+      assetId: args.assetId,
+      sourceUrl: normalizeHttpUrl(args.sourceUrl),
+      maxUrls,
+      status: "queued",
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const getExternalDiscoveryJob = internalQuery({
+  args: { jobId: v.id("externalDiscoveryJobs") },
+  returns: v.union(
+    v.object({
+      _id: v.id("externalDiscoveryJobs"),
+      assetId: v.id("assets"),
+      status: v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("completed"),
+        v.literal("failed"),
+      ),
+      discoveredUrls: v.optional(v.array(v.string())),
+      errorMessage: v.optional(v.string()),
+      updatedAt: v.number(),
+      completedAt: v.optional(v.number()),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.jobId);
+    if (!row) return null;
+    return {
+      _id: row._id,
+      assetId: row.assetId,
+      status: row.status,
+      discoveredUrls: row.discoveredUrls,
+      errorMessage: row.errorMessage,
+      updatedAt: row.updatedAt,
+      completedAt: row.completedAt,
+    };
+  },
+});
+
 const getScannerWorkerToken = (): string | null => {
   const envValue = (
     globalThis as { process?: { env?: Record<string, string | undefined> } }
@@ -2094,6 +2404,141 @@ export const listRunningWebsiteScanRunsForWorker = internalQuery({
       .filter((row) => row.mode === "website_pages")
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((row) => row._id);
+  },
+});
+
+export const listQueuedExternalDiscoveryJobs = internalQuery({
+  args: {},
+  returns: v.array(v.id("externalDiscoveryJobs")),
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("externalDiscoveryJobs")
+      .withIndex("by_status_createdAt", (q) => q.eq("status", "queued"))
+      .order("asc")
+      .take(25);
+    return rows.map((row) => row._id);
+  },
+});
+
+export const claimExternalDiscoveryJob = internalMutation({
+  args: { jobId: v.id("externalDiscoveryJobs") },
+  returns: v.union(
+    v.object({
+      _id: v.id("externalDiscoveryJobs"),
+      assetId: v.id("assets"),
+      sourceUrl: v.string(),
+      maxUrls: v.number(),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.jobId);
+    if (!row || row.status !== "queued") return null;
+    const now = nowMs();
+    await ctx.db.patch(args.jobId, {
+      status: "running",
+      startedAt: now,
+      updatedAt: now,
+      errorMessage: undefined,
+    });
+    return {
+      _id: row._id,
+      assetId: row.assetId,
+      sourceUrl: row.sourceUrl,
+      maxUrls: row.maxUrls,
+    };
+  },
+});
+
+export const completeExternalDiscoveryJob = internalMutation({
+  args: {
+    jobId: v.id("externalDiscoveryJobs"),
+    pageUrls: v.array(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.jobId);
+    if (!row) return null;
+    const normalized = Array.from(
+      new Set(
+        args.pageUrls
+          .map((value) => {
+            try {
+              return normalizeHttpUrl(value);
+            } catch {
+              return value.trim();
+            }
+          })
+          .filter((value) => value.length > 0),
+      ),
+    ).slice(0, Math.max(1, Math.min(500, row.maxUrls)));
+    const now = nowMs();
+    await ctx.db.patch(args.jobId, {
+      status: "completed",
+      discoveredUrls: normalized,
+      errorMessage: undefined,
+      completedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const markExternalDiscoveryJobFailed = internalMutation({
+  args: {
+    jobId: v.id("externalDiscoveryJobs"),
+    errorMessage: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.jobId);
+    if (!row) return null;
+    const now = nowMs();
+    await ctx.db.patch(args.jobId, {
+      status: "failed",
+      errorMessage: args.errorMessage.slice(0, 2_000),
+      completedAt: now,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const claimNextExternalDiscoveryJob = action({
+  args: {
+    workerToken: v.string(),
+  },
+  returns: v.union(
+    v.object({
+      jobId: v.id("externalDiscoveryJobs"),
+      assetId: v.id("assets"),
+      sourceUrl: v.string(),
+      maxUrls: v.number(),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    const queued = await ctx.runQuery(internal.scans.listQueuedExternalDiscoveryJobs, {});
+    const jobId = (queued as Array<Id<"externalDiscoveryJobs">>)[0];
+    if (!jobId) return null;
+    const claimed = (await ctx.runMutation(internal.scans.claimExternalDiscoveryJob, {
+      jobId,
+    })) as
+      | {
+          _id: Id<"externalDiscoveryJobs">;
+          assetId: Id<"assets">;
+          sourceUrl: string;
+          maxUrls: number;
+        }
+      | null;
+    if (!claimed) return null;
+    return {
+      jobId: claimed._id,
+      assetId: claimed.assetId,
+      sourceUrl: claimed.sourceUrl,
+      maxUrls: claimed.maxUrls,
+    };
   },
 });
 
@@ -2194,6 +2639,7 @@ const externalScannerFindingValidator = v.object({
   help: v.optional(v.string()),
   helpUrl: v.optional(v.string()),
   target: v.optional(v.string()),
+  pageRegion: v.optional(findingPageRegionValidator),
   pageUrl: v.optional(v.string()),
   pageNumber: v.optional(v.number()),
   codeSnippet: v.optional(v.string()),
@@ -2270,6 +2716,50 @@ export const failExternalPageScan = action({
       pageRunId: args.pageRunId,
       errorMessage: args.errorMessage,
       errorCategory: args.errorCategory,
+    });
+    return null;
+  },
+});
+
+export const submitExternalDiscoveredPages = action({
+  args: {
+    workerToken: v.string(),
+    jobId: v.id("externalDiscoveryJobs"),
+    pageUrls: v.array(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    const job = await ctx.runQuery(internal.scans.getExternalDiscoveryJob, {
+      jobId: args.jobId,
+    });
+    if (!job) {
+      throw new ConvexError("External discovery job not found.");
+    }
+    await ctx.runMutation(internal.scans.completeExternalDiscoveryJob, {
+      jobId: args.jobId,
+      pageUrls: args.pageUrls,
+    });
+    await ctx.runMutation(internal.scans.upsertDiscoveredPages, {
+      assetId: job.assetId,
+      pageUrls: args.pageUrls,
+    });
+    return null;
+  },
+});
+
+export const failExternalDiscoveryJob = action({
+  args: {
+    workerToken: v.string(),
+    jobId: v.id("externalDiscoveryJobs"),
+    errorMessage: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    assertScannerWorkerAuthorized(args.workerToken);
+    await ctx.runMutation(internal.scans.markExternalDiscoveryJobFailed, {
+      jobId: args.jobId,
+      errorMessage: args.errorMessage,
     });
     return null;
   },
@@ -2433,6 +2923,29 @@ export const backfillDiscoveredPageUniqueness = internalMutation({
       .withIndex("by_asset_discoveredAt", (q) => q.eq("assetId", args.assetId))
       .order("desc")
       .collect();
+    const scanRuns = await ctx.db
+      .query("scanRuns")
+      .withIndex("by_asset_createdAt", (q) => q.eq("assetId", args.assetId))
+      .order("desc")
+      .take(500);
+    const scanRunPages: Array<{
+      pageUrl: string;
+      normalizedUrl: string;
+      updatedAt: number;
+    }> = [];
+    for (const run of scanRuns) {
+      const pages = await ctx.db
+        .query("scanRunPages")
+        .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", run._id))
+        .take(2000);
+      for (const page of pages) {
+        scanRunPages.push({
+          pageUrl: page.pageUrl,
+          normalizedUrl: page.normalizedUrl,
+          updatedAt: page.updatedAt,
+        });
+      }
+    }
     const seen = new Set<string>();
     let removedCount = 0;
     for (const row of rows) {
@@ -2450,9 +2963,22 @@ export const backfillDiscoveredPageUniqueness = internalMutation({
         });
       }
     }
+    const now = nowMs();
+    const seenBeforeInsert = new Set(seen);
+    for (const row of scanRunPages) {
+      const key = normalizePageUrl(row.normalizedUrl || row.pageUrl);
+      if (seenBeforeInsert.has(key)) continue;
+      await ctx.db.insert("discoveredPages", {
+        assetId: args.assetId,
+        pageUrl: key,
+        normalizedUrl: key,
+        discoveredAt: row.updatedAt || now,
+      });
+      seenBeforeInsert.add(key);
+    }
     return {
       removedCount,
-      remainingCount: seen.size,
+      remainingCount: seenBeforeInsert.size,
     };
   },
 });

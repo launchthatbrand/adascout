@@ -8,6 +8,7 @@ import {
   findingSeverityValidator,
   findingSourceValidator,
   findingStatusValidator,
+  findingPageRegionValidator,
   reportLayoutValidator,
   scanRunModeValidator,
   scanRunPageStatusValidator,
@@ -142,6 +143,26 @@ export default defineSchema({
     .index("by_asset_discoveredAt", ["assetId", "discoveredAt"])
     .index("by_asset_normalizedUrl", ["assetId", "normalizedUrl"]),
 
+  externalDiscoveryJobs: defineTable({
+    assetId: v.id("assets"),
+    sourceUrl: v.string(),
+    maxUrls: v.number(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    discoveredUrls: v.optional(v.array(v.string())),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_asset_createdAt", ["assetId", "createdAt"]),
+
   findings: defineTable({
     assetId: v.id("assets"),
     scanRunId: v.id("scanRuns"),
@@ -154,6 +175,7 @@ export default defineSchema({
     help: v.optional(v.string()),
     helpUrl: v.optional(v.string()),
     target: v.optional(v.string()),
+    pageRegion: v.optional(findingPageRegionValidator),
     pageUrl: v.optional(v.string()),
     pageNumber: v.optional(v.number()),
     codeSnippet: v.optional(v.string()),
@@ -223,4 +245,20 @@ export default defineSchema({
     .index("by_asset_generatedAt", ["assetId", "generatedAt"])
     .index("by_scanRun", ["scanRunId"])
     .index("by_asset_updatedAt", ["assetId", "updatedAt"]),
+
+  reportExportTemplates: defineTable({
+    createdBy: v.id("users"),
+    assetId: v.optional(v.id("assets")),
+    name: v.string(),
+    columns: v.array(
+      v.object({
+        key: v.string(),
+        label: v.string(),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_createdBy_updatedAt", ["createdBy", "updatedAt"])
+    .index("by_createdBy_asset_updatedAt", ["createdBy", "assetId", "updatedAt"]),
 });
