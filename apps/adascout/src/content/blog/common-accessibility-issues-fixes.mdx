@@ -1,0 +1,138 @@
+---
+title: "Common Accessibility Issues and How to Fix Them"
+description: "Learn about the most frequent accessibility violations found on websites and practical solutions to fix them."
+slug: "common-accessibility-issues-fixes"
+publishedAt: "2026-03-05"
+author: "ADA Scout Team"
+tags: ["accessibility", "wcag", "best-practices", "remediation"]
+product: "ada-scout"
+status: "published"
+---
+
+Every website has accessibility issues—even well-intentioned ones. The good news is that most problems follow predictable patterns. Here's our guide to the most common issues and how to address them.
+
+## The Most Common Accessibility Violations
+
+Based on millions of scans, these issues appear most frequently:
+
+### 1. Missing Alternative Text
+
+**Problem:** Images lack meaningful alt text, leaving blind users without context.
+
+```html
+<!-- Bad: -->
+<img src="chart-revenue.png" />
+
+<!-- Good: -->
+<img
+  src="chart-revenue.png"
+  alt="Bar chart showing revenue growth of 25% from Q1 to Q4"
+/>
+```
+
+<Callout title="Quick Tip" type="tip">
+  For decorative images, use `alt=""` so screen readers skip them entirely.
+</Callout>
+
+### 2. Low Contrast Ratios
+
+**Problem:** Text doesn't have enough contrast against its background, making it hard to read for users with low vision.
+
+**Requirements:**
+
+- Normal text: 4.5:1 contrast ratio
+- Large text (18px+ or 14px bold): 3:1 contrast ratio
+- UI components and graphics: 3:1 contrast ratio
+
+**Solution:** Use our contrast checker tool or let ADA Scout identify low-contrast areas automatically.
+
+### 3. Missing Form Labels
+
+**Problem:** Form fields lack labels, making it impossible for screen reader users to understand what to enter.
+
+```html
+<!-- Bad: -->
+<input type="email" placeholder="Enter your email" />
+
+<!-- Good: -->
+<label for="email">Email Address</label>
+<input type="email" id="email" placeholder="Enter your email" />
+```
+
+### 4. Empty Links
+
+**Problem:** Links with no text or only images as links create confusion.
+
+```html
+<!-- Bad: -->
+<a href="/about"><img src="about-us.png" /></a>
+
+<!-- Good: -->
+<a href="/about">
+  <img src="about-us.png" alt="Learn about our company" />
+</a>
+```
+
+### 5. Missing Headings or Heading Skips
+
+**Problem:** Content lacks proper heading hierarchy or skips levels (h1 → h3).
+
+**Correct structure:**
+
+```html
+<h1>Page Title</h1>
+<h2>Main Section</h2>
+<h3>Subsection</h3>
+<h2>Another Section</h2>
+```
+
+### 6. Keyboard Traps
+
+**Problem:** Users can't tab out of certain elements, trapping keyboard navigation.
+
+**Common culprits:** Modal dialogs, embedded iframes, and certain JavaScript widgets.
+
+**Solution:** Ensure users can always tab away using the keyboard.
+
+### 7. Auto-Playing Media
+
+**Problem:** Audio or video that plays automatically without controls.
+
+**Requirements:**
+
+- Provide controls for auto-playing media
+- Don't auto-play audio
+- If auto-playing, users must be able to pause or stop
+
+## How to Prioritize Fixes
+
+Not all issues are equal. Here's how to prioritize:
+
+<Checklist
+  title="Remediation Priority"
+  items={[
+    "Fix keyboard traps first - they completely block users",
+    "Address missing labels on forms - high user impact",
+    "Add alt text to meaningful images",
+    "Increase color contrast where possible",
+    "Fix heading structure for better navigation",
+    "Add captions to videos",
+    "Improve overall user experience",
+  ]}
+/>
+
+## Automate Your Testing
+
+Manual testing isn't scalable. Use automated tools to:
+
+1. **Catch issues early** - Test during development
+2. **Monitor continuously** - Scan regularly for regressions
+3. **Prioritize intelligently** - Focus on high-impact fixes
+
+ADA Scout runs comprehensive scans to identify these issues and provides detailed remediation guidance.
+
+<InlineCta label="Start Your Free Scan" href="/admin/assets" />
+
+## The Bottom Line
+
+Most accessibility issues are easy to fix once you know they exist. The key is regular testing and a commitment to inclusive design. Start with high-impact fixes and work your way through the list systematically.

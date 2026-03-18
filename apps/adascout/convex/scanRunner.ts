@@ -1,4 +1,5 @@
 "use node";
+
 /* eslint-disable @typescript-eslint/array-type */
 /* eslint-disable @typescript-eslint/no-base-to-string */
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -8,15 +9,15 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-condition */
 /* eslint-disable no-restricted-properties */
 /* eslint-disable turbo/no-undeclared-env-vars */
+import type { ComponentApi } from "@browserbasehq/convex-stagehand";
+import type { GenericActionCtx } from "convex/server";
+import { Stagehand } from "@browserbasehq/convex-stagehand";
+import { v } from "convex/values";
+import { z } from "zod";
 
 import type { Id } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import type { GenericActionCtx } from "convex/server";
-import { Stagehand } from "@browserbasehq/convex-stagehand";
-import type { ComponentApi } from "@browserbasehq/convex-stagehand";
-import { v } from "convex/values";
-import { z } from "zod";
 
 interface NormalizedFinding {
   source: "axe" | "ibm" | "pdf" | "stagehand";
@@ -32,7 +33,12 @@ interface NormalizedFinding {
   codeSnippet?: string;
   manualReviewRequired?: boolean;
   confidence?: number;
-  status?: "open" | "in_progress" | "resolved" | "verified_on_rescan" | "regressed";
+  status?:
+    | "open"
+    | "in_progress"
+    | "resolved"
+    | "verified_on_rescan"
+    | "regressed";
   resolvedAt?: number;
   verifiedAt?: number;
   assignee?: Id<"users">;
@@ -87,9 +93,14 @@ const SEVERITY_WEIGHT: Record<NormalizedFinding["severity"], number> = {
 
 const nowMs = () => Date.now();
 
-const sleep = async (ms: number) => await new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = async (ms: number) =>
+  await new Promise((resolve) => setTimeout(resolve, ms));
 
-const withTimeout = async <T>(label: string, ms: number, fn: () => Promise<T>): Promise<T> => {
+export const withTimeout = async <T>(
+  label: string,
+  ms: number,
+  fn: () => Promise<T>,
+): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -107,7 +118,11 @@ const withTimeout = async <T>(label: string, ms: number, fn: () => Promise<T>): 
   }
 };
 
-const withRetry = async <T>(label: string, fn: () => Promise<T>, attempts = 2): Promise<T> => {
+export const withRetry = async <T>(
+  label: string,
+  fn: () => Promise<T>,
+  attempts = 2,
+): Promise<T> => {
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -120,7 +135,8 @@ const withRetry = async <T>(label: string, fn: () => Promise<T>, attempts = 2): 
     }
   }
   throw new Error(
-    `${label} failed after ${attempts} attempt(s): ${lastError instanceof Error ? lastError.message : String(lastError)
+    `${label} failed after ${attempts} attempt(s): ${
+      lastError instanceof Error ? lastError.message : String(lastError)
     }`,
   );
 };
@@ -153,7 +169,9 @@ const computeSummary = (findings: NormalizedFinding[]) => {
   return summary;
 };
 
-const severityFromAxeImpact = (impact: unknown): NormalizedFinding["severity"] => {
+const severityFromAxeImpact = (
+  impact: unknown,
+): NormalizedFinding["severity"] => {
   switch (impact) {
     case "critical":
       return "critical";
@@ -168,7 +186,9 @@ const severityFromAxeImpact = (impact: unknown): NormalizedFinding["severity"] =
   }
 };
 
-const normalizeStagehandSeverity = (value: unknown): NormalizedFinding["severity"] => {
+const normalizeStagehandSeverity = (
+  value: unknown,
+): NormalizedFinding["severity"] => {
   const normalized = String(value ?? "")
     .trim()
     .toLowerCase();
@@ -186,7 +206,10 @@ const DEFAULT_MAX_CONCURRENT_SESSIONS = 1;
 const DEFAULT_PAGES_PER_SESSION = 10;
 const DEFAULT_LEASE_TTL_MS = 120_000;
 
-const parsePositiveIntEnv = (value: string | undefined, fallback: number): number => {
+const parsePositiveIntEnv = (
+  value: string | undefined,
+  fallback: number,
+): number => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return parsed;
@@ -198,22 +221,43 @@ const computeEvidenceHash = (args: {
   target?: string;
   pageUrl?: string;
   codeSnippet?: string;
-}) =>
-  [
-    args.source,
-    args.ruleId,
-    args.target ?? "",
-    args.pageUrl ?? "",
-    args.codeSnippet ?? "",
-  ]
-    .join("|")
-    .toLowerCase();
+}) => {
+  const normalizeForHash = (value: string | undefined): string =>
+    String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  const normalizePageUrlForHash = (value: string | undefined): string => {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    try {
+      const parsed = new URL(raw);
+      parsed.hash = "";
+      parsed.pathname =
+        parsed.pathname === "/"
+          ? "/"
+          : parsed.pathname.replace(/\/+$/, "") || "/";
+      return parsed.toString().toLowerCase();
+    } catch {
+      return normalizeForHash(raw);
+    }
+  };
+  return [
+    normalizeForHash(args.source),
+    normalizeForHash(args.ruleId),
+    normalizeForHash(args.target),
+    normalizePageUrlForHash(args.pageUrl),
+  ].join("|");
+};
 
 const categorizeScanError = (error: unknown): string => {
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
   if (message.includes("timed out")) return "timeout";
   if (message.includes("429")) return "rate_limit";
-  if (message.includes("401") || message.includes("unauthorized")) return "auth";
+  if (message.includes("401") || message.includes("unauthorized"))
+    return "auth";
   if (message.includes("invalid provider")) return "provider";
   if (message.includes("fetch")) return "network";
   if (message.includes("schema")) return "schema";
@@ -223,7 +267,10 @@ const categorizeScanError = (error: unknown): string => {
 const isStagehandSessionLimitError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
-  return normalized.includes("stagehand api error (429)") || normalized.includes("max concurrent sessions limit");
+  return (
+    normalized.includes("stagehand api error (429)") ||
+    normalized.includes("max concurrent sessions limit")
+  );
 };
 
 const getSessionRuntimeConfig = (): {
@@ -233,17 +280,30 @@ const getSessionRuntimeConfig = (): {
   leaseTtlMs: number;
   leaseAcquireTimeoutMs: number;
 } => {
-  const planTier = (process.env.SCANNER_PLAN_TIER ?? "free").toLowerCase() === "paid" ? "paid" : "free";
+  const planTier =
+    (process.env.SCANNER_PLAN_TIER ?? "free").toLowerCase() === "paid"
+      ? "paid"
+      : "free";
   const configuredConcurrent = parsePositiveIntEnv(
     process.env.SCANNER_MAX_CONCURRENT_SESSIONS,
     DEFAULT_MAX_CONCURRENT_SESSIONS,
   );
   return {
     planTier,
-    maxConcurrentSessions: planTier === "free" ? 1 : Math.max(1, configuredConcurrent),
-    pagesPerSession: parsePositiveIntEnv(process.env.SCANNER_PAGES_PER_SESSION, DEFAULT_PAGES_PER_SESSION),
-    leaseTtlMs: parsePositiveIntEnv(process.env.SCANNER_LEASE_TTL_MS, DEFAULT_LEASE_TTL_MS),
-    leaseAcquireTimeoutMs: parsePositiveIntEnv(process.env.SCANNER_LEASE_ACQUIRE_TIMEOUT_MS, 45_000),
+    maxConcurrentSessions:
+      planTier === "free" ? 1 : Math.max(1, configuredConcurrent),
+    pagesPerSession: parsePositiveIntEnv(
+      process.env.SCANNER_PAGES_PER_SESSION,
+      DEFAULT_PAGES_PER_SESSION,
+    ),
+    leaseTtlMs: parsePositiveIntEnv(
+      process.env.SCANNER_LEASE_TTL_MS,
+      DEFAULT_LEASE_TTL_MS,
+    ),
+    leaseAcquireTimeoutMs: parsePositiveIntEnv(
+      process.env.SCANNER_LEASE_ACQUIRE_TIMEOUT_MS,
+      45_000,
+    ),
   };
 };
 
@@ -279,13 +339,22 @@ const startSharedSessionWithRetry = async (
 };
 
 const getStagehandConfigForRuntime = (): StagehandRuntimeConfig | null => {
-  const stagehandComponent = (components as unknown as { stagehand?: unknown }).stagehand;
+  const stagehandComponent = (components as unknown as { stagehand?: unknown })
+    .stagehand;
   const browserbaseApiKey = process.env.BROWSERBASE_API_KEY;
   const browserbaseProjectId = process.env.BROWSERBASE_PROJECT_ID;
   const geminiApiKey =
-    process.env.GEMINI_API_KEY ?? process.env.GEMENI_API_KEY ?? process.env.GOOGLE_API_KEY;
-  const stagehandModelName = process.env.STAGEHAND_MODEL_NAME ?? "google/gemini-2.5-flash";
-  if (!stagehandComponent || !browserbaseApiKey || !browserbaseProjectId || !geminiApiKey) {
+    process.env.GEMINI_API_KEY ??
+    process.env.GEMENI_API_KEY ??
+    process.env.GOOGLE_API_KEY;
+  const stagehandModelName =
+    process.env.STAGEHAND_MODEL_NAME ?? "google/gemini-2.5-flash";
+  if (
+    !stagehandComponent ||
+    !browserbaseApiKey ||
+    !browserbaseProjectId ||
+    !geminiApiKey
+  ) {
     return null;
   }
   return {
@@ -299,7 +368,10 @@ const getStagehandConfigForRuntime = (): StagehandRuntimeConfig | null => {
   };
 };
 
-const normalizeStagehandExtractedFindings = (extracted: unknown, url: string): NormalizedFinding[] => {
+const normalizeStagehandExtractedFindings = (
+  extracted: unknown,
+  url: string,
+): NormalizedFinding[] => {
   const rawItems = Array.isArray((extracted as { findings?: unknown }).findings)
     ? ((extracted as { findings?: unknown[] }).findings ?? [])
     : Array.isArray(extracted)
@@ -349,24 +421,37 @@ const normalizeStagehandExtractedFindings = (extracted: unknown, url: string): N
       lastStateChangeAt: nowMs(),
       capturedAt: nowMs(),
       selectorSnapshot: target,
-      domSnippet: typeof record.description === "string" ? record.description : undefined,
-      pageTitle: typeof record.pageTitle === "string" ? record.pageTitle : undefined,
+      domSnippet:
+        typeof record.description === "string" ? record.description : undefined,
+      pageTitle:
+        typeof record.pageTitle === "string" ? record.pageTitle : undefined,
       evidenceHash: computeEvidenceHash({
         source: "stagehand",
         ruleId,
         target,
         pageUrl: url,
-        codeSnippet: typeof record.description === "string" ? record.description : undefined,
+        codeSnippet:
+          typeof record.description === "string"
+            ? record.description
+            : undefined,
       }),
     };
   });
 
-  return findings.sort((a, b) => SEVERITY_WEIGHT[b.severity] - SEVERITY_WEIGHT[a.severity]);
+  return findings.sort(
+    (a, b) => SEVERITY_WEIGHT[b.severity] - SEVERITY_WEIGHT[a.severity],
+  );
 };
 
-const buildStagehandErrorFinding = (message: string, url: string, stagehandModelName: string): NormalizedFinding => {
+const buildStagehandErrorFinding = (
+  message: string,
+  url: string,
+  stagehandModelName: string,
+): NormalizedFinding => {
   const invalidProvider = message.toLowerCase().includes("invalid provider");
-  const unauthorized = message.includes("(401)") || message.toLowerCase().includes("401 unauthorized");
+  const unauthorized =
+    message.includes("(401)") ||
+    message.toLowerCase().includes("401 unauthorized");
   return {
     source: "stagehand",
     severity: "info",
@@ -406,9 +491,14 @@ const stagehandFindingSchema = z.object({
   ),
 });
 
-const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFinding[] => {
+const _normalizeAxeFindings = (
+  input: unknown,
+  pageUrl: string,
+): NormalizedFinding[] => {
   const payload = input as { violations?: Array<Record<string, unknown>> };
-  const violations = Array.isArray(payload?.violations) ? payload.violations : [];
+  const violations = Array.isArray(payload?.violations)
+    ? payload.violations
+    : [];
   const findings: NormalizedFinding[] = [];
   for (const violation of violations) {
     const nodes = Array.isArray(violation.nodes) ? violation.nodes : [];
@@ -418,9 +508,13 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
         severity: severityFromAxeImpact(violation.impact),
         ruleId: String(violation.id ?? "axe.rule"),
         title: String(violation.help ?? violation.id ?? "Accessibility issue"),
-        description: typeof violation.description === "string" ? violation.description : undefined,
+        description:
+          typeof violation.description === "string"
+            ? violation.description
+            : undefined,
         help: typeof violation.help === "string" ? violation.help : undefined,
-        helpUrl: typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
+        helpUrl:
+          typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
         pageUrl,
         status: "open",
         lastStateChangeAt: nowMs(),
@@ -439,15 +533,20 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
         severity: severityFromAxeImpact(violation.impact),
         ruleId: String(violation.id ?? "axe.rule"),
         title: String(violation.help ?? violation.id ?? "Accessibility issue"),
-        description: typeof violation.description === "string" ? violation.description : undefined,
+        description:
+          typeof violation.description === "string"
+            ? violation.description
+            : undefined,
         help: typeof violation.help === "string" ? violation.help : undefined,
-        helpUrl: typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
+        helpUrl:
+          typeof violation.helpUrl === "string" ? violation.helpUrl : undefined,
         target: Array.isArray((node as { target?: unknown[] }).target)
           ? String((node as { target?: unknown[] }).target?.[0] ?? "")
           : undefined,
-        codeSnippet: typeof (node as { html?: unknown }).html === "string"
-          ? String((node as { html?: unknown }).html)
-          : undefined,
+        codeSnippet:
+          typeof (node as { html?: unknown }).html === "string"
+            ? String((node as { html?: unknown }).html)
+            : undefined,
         pageUrl,
         confidence: 0.95,
         status: "open",
@@ -456,9 +555,10 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
         selectorSnapshot: Array.isArray((node as { target?: unknown[] }).target)
           ? String((node as { target?: unknown[] }).target?.[0] ?? "")
           : undefined,
-        domSnippet: typeof (node as { html?: unknown }).html === "string"
-          ? String((node as { html?: unknown }).html)
-          : undefined,
+        domSnippet:
+          typeof (node as { html?: unknown }).html === "string"
+            ? String((node as { html?: unknown }).html)
+            : undefined,
         evidenceHash: computeEvidenceHash({
           source: "axe",
           ruleId: String(violation.id ?? "axe.rule"),
@@ -466,9 +566,10 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
             ? String((node as { target?: unknown[] }).target?.[0] ?? "")
             : undefined,
           pageUrl,
-          codeSnippet: typeof (node as { html?: unknown }).html === "string"
-            ? String((node as { html?: unknown }).html)
-            : undefined,
+          codeSnippet:
+            typeof (node as { html?: unknown }).html === "string"
+              ? String((node as { html?: unknown }).html)
+              : undefined,
         }),
       });
     }
@@ -476,7 +577,10 @@ const _normalizeAxeFindings = (input: unknown, pageUrl: string): NormalizedFindi
   return findings;
 };
 
-const _normalizeIbmFindings = (input: unknown, pageUrl: string): NormalizedFinding[] => {
+const _normalizeIbmFindings = (
+  input: unknown,
+  pageUrl: string,
+): NormalizedFinding[] => {
   const output: NormalizedFinding[] = [];
   const maybeReport = (input as { report?: unknown })?.report ?? input;
   const results = (maybeReport as { results?: unknown[] })?.results;
@@ -488,32 +592,40 @@ const _normalizeIbmFindings = (input: unknown, pageUrl: string): NormalizedFindi
     const rawPath = (result as { path?: unknown[] }).path;
     const nodes: unknown[] = Array.isArray(rawPath) ? rawPath : [];
     const firstTarget = nodes[0];
-    const level = String((result as { level?: unknown }).level ?? "").toLowerCase();
-    const severity: NormalizedFinding["severity"] =
-      level.includes("violation") ? "serious" : level.includes("recommendation") ? "minor" : "info";
+    const level = String(
+      (result as { level?: unknown }).level ?? "",
+    ).toLowerCase();
+    const severity: NormalizedFinding["severity"] = level.includes("violation")
+      ? "serious"
+      : level.includes("recommendation")
+        ? "minor"
+        : "info";
     output.push({
       source: "ibm",
       severity,
       ruleId: String((result as { ruleId?: unknown }).ruleId ?? "ibm.rule"),
       title: String(
         (result as { message?: unknown }).message ??
-        (result as { ruleId?: unknown }).ruleId ??
-        "Accessibility finding",
+          (result as { ruleId?: unknown }).ruleId ??
+          "Accessibility finding",
       ),
-      description: typeof (result as { reasonId?: unknown }).reasonId === "string"
-        ? String((result as { reasonId?: unknown }).reasonId)
-        : undefined,
+      description:
+        typeof (result as { reasonId?: unknown }).reasonId === "string"
+          ? String((result as { reasonId?: unknown }).reasonId)
+          : undefined,
       target: typeof firstTarget === "string" ? String(firstTarget) : undefined,
       pageUrl,
       confidence: 0.85,
       status: "open",
       lastStateChangeAt: nowMs(),
       capturedAt: nowMs(),
-      selectorSnapshot: typeof firstTarget === "string" ? String(firstTarget) : undefined,
+      selectorSnapshot:
+        typeof firstTarget === "string" ? String(firstTarget) : undefined,
       evidenceHash: computeEvidenceHash({
         source: "ibm",
         ruleId: String((result as { ruleId?: unknown }).ruleId ?? "ibm.rule"),
-        target: typeof firstTarget === "string" ? String(firstTarget) : undefined,
+        target:
+          typeof firstTarget === "string" ? String(firstTarget) : undefined,
         pageUrl,
       }),
     });
@@ -521,7 +633,10 @@ const _normalizeIbmFindings = (input: unknown, pageUrl: string): NormalizedFindi
   return output;
 };
 
-const scanWebsite = async (ctx: GenericActionCtx<any>, url: string): Promise<NormalizedFinding[]> => {
+const scanWebsite = async (
+  ctx: GenericActionCtx<any>,
+  url: string,
+): Promise<NormalizedFinding[]> => {
   const startedAt = nowMs();
   logScanPhase({ event: "analysis_start", pageUrl: url, engine: "stagehand" });
   const runtime = getStagehandConfigForRuntime();
@@ -543,14 +658,17 @@ const scanWebsite = async (ctx: GenericActionCtx<any>, url: string): Promise<Nor
 
   try {
     logScanPhase({ event: "analysis_stagehand_extract_start", pageUrl: url });
-    const extracted = await withTimeout("Stagehand accessibility extract", 90_000, async () =>
-      stagehand.extract(ctx, {
-        url,
-        instruction:
-          "Audit this page for WCAG 2.2 AA issues. Return concise findings with severity and selector.",
-        schema: stagehandFindingSchema,
-        options: { waitUntil: "domcontentloaded", timeout: 45_000 },
-      }),
+    const extracted = await withTimeout(
+      "Stagehand accessibility extract",
+      90_000,
+      async () =>
+        stagehand.extract(ctx, {
+          url,
+          instruction:
+            "Audit this page for WCAG 2.2 AA issues. Return concise findings with severity and selector.",
+          schema: stagehandFindingSchema,
+          options: { waitUntil: "domcontentloaded", timeout: 45_000 },
+        }),
     );
     const sorted = normalizeStagehandExtractedFindings(extracted, url);
     logScanPhase({
@@ -562,11 +680,17 @@ const scanWebsite = async (ctx: GenericActionCtx<any>, url: string): Promise<Nor
     return sorted;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logScanPhase({ event: "analysis_stagehand_extract_failed", pageUrl: url, errorMessage: message });
-    const finding = buildStagehandErrorFinding(message, url, stagehandModelName);
-    return [
-      finding,
-    ];
+    logScanPhase({
+      event: "analysis_stagehand_extract_failed",
+      pageUrl: url,
+      errorMessage: message,
+    });
+    const finding = buildStagehandErrorFinding(
+      message,
+      url,
+      stagehandModelName,
+    );
+    return [finding];
   }
 };
 
@@ -578,17 +702,24 @@ const scanWebsiteUsingExistingSession = async (
   url: string,
 ): Promise<NormalizedFinding[]> => {
   const startedAt = nowMs();
-  logScanPhase({ event: "analysis_stagehand_extract_start", pageUrl: url, sessionMode: "shared" });
+  logScanPhase({
+    event: "analysis_stagehand_extract_start",
+    pageUrl: url,
+    sessionMode: "shared",
+  });
   try {
-    const extracted = await withTimeout("Stagehand session extract", 90_000, async () =>
-      stagehand.extract(ctx, {
-        sessionId,
-        url,
-        instruction:
-          "Audit this page for WCAG 2.2 AA issues. Return concise findings with severity and selector.",
-        schema: stagehandFindingSchema,
-        options: { waitUntil: "domcontentloaded", timeout: 45_000 },
-      }),
+    const extracted = await withTimeout(
+      "Stagehand session extract",
+      90_000,
+      async () =>
+        stagehand.extract(ctx, {
+          sessionId,
+          url,
+          instruction:
+            "Audit this page for WCAG 2.2 AA issues. Return concise findings with severity and selector.",
+          schema: stagehandFindingSchema,
+          options: { waitUntil: "domcontentloaded", timeout: 45_000 },
+        }),
     );
     const sorted = normalizeStagehandExtractedFindings(extracted, url);
     logScanPhase({
@@ -611,7 +742,7 @@ const scanWebsiteUsingExistingSession = async (
   }
 };
 
-const normalizeUrlForCrawl = (rawUrl: string): string | null => {
+export const normalizeUrlForCrawl = (rawUrl: string): string | null => {
   try {
     const url = new URL(rawUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
@@ -654,7 +785,7 @@ const STATIC_ASSET_EXTENSIONS = new Set([
   ".pdf",
 ]);
 
-const isLikelyHtmlPageUrl = (normalizedUrl: string): boolean => {
+export const isLikelyHtmlPageUrl = (normalizedUrl: string): boolean => {
   try {
     const parsed = new URL(normalizedUrl);
     const pathname = parsed.pathname.toLowerCase();
@@ -681,17 +812,76 @@ const isLikelyHtmlPageUrl = (normalizedUrl: string): boolean => {
   }
 };
 
-const extractXmlLocs = (xml: string): string[] => {
+export const extractXmlLocs = (xml: string): string[] => {
   const matches = Array.from(xml.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi));
-  return matches.map((match) => match[1] ?? "").filter((value) => value.length > 0);
+  return matches
+    .map((match) => match[1] ?? "")
+    .filter((value) => value.length > 0);
 };
 
-const extractInternalLinks = (html: string, origin: string): string[] => {
-  const hrefMatches = Array.from(html.matchAll(/href\s*=\s*["']([^"']+)["']/gi));
+const extractUrlsFromLooseText = (text: string): string[] => {
+  const matches = text.match(/https?:\/\/[^\s<>"'`]+/gi) ?? [];
+  return matches
+    .map((value) => value.replace(/[),.;]+$/g, ""))
+    .filter((value) => value.length > 0);
+};
+
+const toProxyMirrorUrl = (rawUrl: string): string =>
+  `https://r.jina.ai/http://${rawUrl.replace(/^https?:\/\//i, "")}`;
+
+const stripTrailingIsoTimestampSegment = (normalizedUrl: string): string => {
+  try {
+    const parsed = new URL(normalizedUrl);
+    const segments = parsed.pathname.split("/").filter((segment) => segment);
+    if (segments.length === 0) return normalizedUrl;
+    const last = segments.at(-1)?.toLowerCase() ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}\+\d{2}:\d{2}$/.test(last)) {
+      return normalizedUrl;
+    }
+    const nextPath = `/${segments.slice(0, -1).join("/")}`;
+    parsed.pathname = nextPath === "/" ? "/" : nextPath;
+    if (parsed.pathname !== "/" && parsed.pathname.endsWith("/")) {
+      parsed.pathname = parsed.pathname.slice(0, -1);
+    }
+    return parsed.toString();
+  } catch {
+    return normalizedUrl;
+  }
+};
+
+const normalizeCandidateUrl = (candidate: string): string | null => {
+  const normalized = normalizeUrlForCrawl(candidate);
+  if (!normalized) return null;
+  const cleaned = stripTrailingIsoTimestampSegment(normalized);
+  return normalizeUrlForCrawl(cleaned);
+};
+
+const isLikelySitemapDocumentUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    const pathname = parsed.pathname.toLowerCase();
+    return pathname.endsWith(".xml") || pathname.includes("sitemap");
+  } catch {
+    return false;
+  }
+};
+
+export const extractInternalLinks = (
+  html: string,
+  origin: string,
+): string[] => {
+  const hrefMatches = Array.from(
+    html.matchAll(/href\s*=\s*["']([^"']+)["']/gi),
+  );
   const urls: string[] = [];
   for (const match of hrefMatches) {
     const href = match[1] ?? "";
-    if (!href || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("#")) {
+    if (
+      !href ||
+      href.startsWith("mailto:") ||
+      href.startsWith("tel:") ||
+      href.startsWith("#")
+    ) {
       continue;
     }
     try {
@@ -706,21 +896,69 @@ const extractInternalLinks = (html: string, origin: string): string[] => {
   return urls;
 };
 
-const discoverWebsiteUrls = async (
+export const discoverWebsiteUrls = async (
   seedUrl: string,
   maxUrls: number,
+  options?: {
+    useTimeouts?: boolean;
+    sitemapOnly?: boolean;
+  },
 ): Promise<Array<string>> => {
   const normalizedSeed = normalizeUrlForCrawl(seedUrl);
   if (!normalizedSeed) return [];
+  const useTimeouts = options?.useTimeouts ?? true;
+  const sitemapOnly = options?.sitemapOnly ?? false;
+  const discoveryHeaders: Record<string, string> = {
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.9,*/*;q=0.8",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+  };
   const seed = new URL(normalizedSeed);
   const origin = seed.origin;
   const discovered = new Set<string>([normalizedSeed]);
+  const fetchForDiscovery = async (
+    label: string,
+    url: string,
+    timeoutMs: number,
+  ): Promise<Response> => {
+    if (!useTimeouts) {
+      return await fetch(url, {
+        headers: discoveryHeaders,
+        redirect: "follow",
+      });
+    }
+    return await withTimeout(label, timeoutMs, async () =>
+      withRetry(
+        label,
+        async () =>
+          await fetch(url, {
+            headers: discoveryHeaders,
+            redirect: "follow",
+          }),
+        1,
+      ),
+    );
+  };
 
   // Sitemap-first discovery.
-  const sitemapCandidates = [`${origin}/sitemap.xml`];
+  const sitemapCandidates = [
+    `${origin}/sitemap.xml`,
+    `${origin}/sitemap_index.xml`,
+    `${origin}/wp-sitemap.xml`,
+    `${origin}/page-sitemap.xml`,
+    `${origin}/post-sitemap.xml`,
+    `${origin}/wp-sitemap-posts-page-1.xml`,
+    `${origin}/wp-sitemap-posts-post-1.xml`,
+  ];
   try {
-    const robotsResponse = await withTimeout("robots.txt fetch", 10_000, async () =>
-      withRetry("robots.txt fetch", async () => fetch(`${origin}/robots.txt`), 1),
+    const robotsResponse = await fetchForDiscovery(
+      "robots.txt fetch",
+      `${origin}/robots.txt`,
+      10_000,
     );
     if (robotsResponse.ok) {
       const robots = await robotsResponse.text();
@@ -737,19 +975,31 @@ const discoverWebsiteUrls = async (
     // robots.txt is best-effort
   }
 
-  for (const sitemapUrl of sitemapCandidates) {
-    if (discovered.size >= maxUrls) break;
+  const sitemapQueue = Array.from(new Set(sitemapCandidates));
+  const visitedSitemaps = new Set<string>();
+  while (sitemapQueue.length > 0 && discovered.size < maxUrls) {
+    const sitemapUrl = sitemapQueue.shift();
+    if (!sitemapUrl || visitedSitemaps.has(sitemapUrl)) continue;
+    visitedSitemaps.add(sitemapUrl);
     try {
-      const response = await withTimeout("sitemap fetch", 12_000, async () =>
-        withRetry("sitemap fetch", async () => fetch(sitemapUrl), 1),
+      const response = await fetchForDiscovery(
+        "sitemap fetch",
+        sitemapUrl,
+        12_000,
       );
       if (!response.ok) continue;
       const xml = await response.text();
       for (const loc of extractXmlLocs(xml)) {
-        const normalized = normalizeUrlForCrawl(loc);
+        const normalized = normalizeCandidateUrl(loc);
         if (!normalized) continue;
         const parsed = new URL(normalized);
         if (parsed.origin !== origin) continue;
+        if (isLikelySitemapDocumentUrl(normalized)) {
+          if (!visitedSitemaps.has(normalized)) {
+            sitemapQueue.push(normalized);
+          }
+          continue;
+        }
         discovered.add(normalized);
         if (discovered.size >= maxUrls) break;
       }
@@ -759,6 +1009,9 @@ const discoverWebsiteUrls = async (
   }
 
   // Crawl fallback when sitemap has too few links.
+  if (sitemapOnly) {
+    return Array.from(discovered).filter(isLikelyHtmlPageUrl).slice(0, maxUrls);
+  }
   const queue: string[] = [normalizedSeed];
   const visited = new Set<string>();
   while (queue.length > 0 && discovered.size < maxUrls) {
@@ -766,19 +1019,23 @@ const discoverWebsiteUrls = async (
     if (!current || visited.has(current)) continue;
     visited.add(current);
     try {
-      const response = await withTimeout("crawl page fetch", 10_000, async () =>
-        withRetry("crawl page fetch", async () => fetch(current), 1),
+      const response = await fetchForDiscovery(
+        "crawl page fetch",
+        current,
+        10_000,
       );
       if (!response.ok) continue;
       const html = await response.text();
       const links = extractInternalLinks(html, origin);
       for (const link of links) {
-        if (!discovered.has(link)) {
-          discovered.add(link);
+        const normalizedLink = normalizeCandidateUrl(link);
+        if (!normalizedLink) continue;
+        if (!discovered.has(normalizedLink)) {
+          discovered.add(normalizedLink);
           if (discovered.size >= maxUrls) break;
         }
-        if (!visited.has(link) && queue.length < maxUrls * 2) {
-          queue.push(link);
+        if (!visited.has(normalizedLink) && queue.length < maxUrls * 2) {
+          queue.push(normalizedLink);
         }
       }
     } catch {
@@ -786,10 +1043,149 @@ const discoverWebsiteUrls = async (
     }
   }
 
+  // Some hosts soft-block server-side crawlers in Convex runtime. As a final
+  // non-browser fallback, fetch sitemap content through a text mirror endpoint.
+  if (discovered.size <= 1 && discovered.size < maxUrls) {
+    const proxySitemapQueue = [
+      normalizedSeed,
+      `${origin}/sitemap.xml`,
+      `${origin}/sitemap_index.xml`,
+      `${origin}/robots.txt`,
+    ];
+    const visitedProxySitemaps = new Set<string>();
+    while (proxySitemapQueue.length > 0 && discovered.size < maxUrls) {
+      const sitemapOrRobotsUrl = proxySitemapQueue.shift();
+      if (
+        !sitemapOrRobotsUrl ||
+        visitedProxySitemaps.has(sitemapOrRobotsUrl)
+      ) {
+        continue;
+      }
+      visitedProxySitemaps.add(sitemapOrRobotsUrl);
+      try {
+        const proxyUrl = toProxyMirrorUrl(sitemapOrRobotsUrl);
+        const response = await fetchForDiscovery(
+          "proxy sitemap fetch",
+          proxyUrl,
+          15_000,
+        );
+        if (!response.ok) continue;
+        const text = await response.text();
+        const candidates = [
+          ...extractXmlLocs(text),
+          ...extractUrlsFromLooseText(text),
+        ];
+        for (const candidate of candidates) {
+          const normalized = normalizeCandidateUrl(candidate);
+          if (!normalized) continue;
+          const parsed = new URL(normalized);
+          if (parsed.origin !== origin) continue;
+          if (isLikelySitemapDocumentUrl(normalized)) {
+            if (!visitedProxySitemaps.has(normalized)) {
+              proxySitemapQueue.push(normalized);
+            }
+            continue;
+          }
+          if (!isLikelyHtmlPageUrl(normalized)) continue;
+          discovered.add(normalized);
+          if (discovered.size >= maxUrls) break;
+        }
+      } catch {
+        // Proxy sitemap fallback is best-effort.
+      }
+    }
+  }
+
   return Array.from(discovered).filter(isLikelyHtmlPageUrl).slice(0, maxUrls);
 };
 
-const scanPdfFromFileUrl = async (fileUrl: string): Promise<NormalizedFinding[]> => {
+const stagehandDiscoverySchema = z.object({
+  links: z.array(z.string()).optional(),
+  urls: z.array(z.string()).optional(),
+  hrefs: z.array(z.string()).optional(),
+});
+
+const collectCandidateUrls = (value: unknown): string[] => {
+  const out = new Set<string>();
+  if (!value) return [];
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) out.add(trimmed);
+    return Array.from(out);
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      for (const nested of collectCandidateUrls(item)) out.add(nested);
+    }
+    return Array.from(out);
+  }
+  if (typeof value === "object") {
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      for (const candidate of collectCandidateUrls(nested)) out.add(candidate);
+    }
+  }
+  return Array.from(out);
+};
+
+export const discoverWebsiteUrlsViaStagehand = async (
+  ctx: GenericActionCtx<any>,
+  seedUrl: string,
+  maxUrls: number,
+): Promise<string[]> => {
+  const normalizedSeed = normalizeUrlForCrawl(seedUrl);
+  if (!normalizedSeed) return [];
+  const runtime = getStagehandConfigForRuntime();
+  if (!runtime) return [normalizedSeed];
+  const origin = new URL(normalizedSeed).origin;
+  const discovered = new Set<string>([normalizedSeed]);
+  const discoveryTargets = [
+    normalizedSeed,
+    `${origin}/sitemap.xml`,
+    `${origin}/sitemap_index.xml`,
+  ];
+
+  for (const targetUrl of discoveryTargets) {
+    if (discovered.size >= maxUrls) break;
+    try {
+      const extracted = (await withTimeout(
+        "Stagehand discovery extract",
+        90_000,
+        async () =>
+          await runtime.stagehand.extract(ctx, {
+            url: targetUrl,
+            instruction:
+              "Extract all URL links present in the page content and DOM. Return absolute URLs only, preserving same-site URLs.",
+            schema: stagehandDiscoverySchema,
+            options: { waitUntil: "domcontentloaded", timeout: 45_000 },
+          }),
+      )) as unknown;
+      const candidates = collectCandidateUrls(extracted);
+      for (const rawLink of candidates) {
+        const normalized = normalizeUrlForCrawl(rawLink);
+        if (!normalized) continue;
+        const parsed = new URL(normalized);
+        if (parsed.origin !== origin) continue;
+        if (isLikelySitemapDocumentUrl(normalized)) continue;
+        if (!isLikelyHtmlPageUrl(normalized)) continue;
+        discovered.add(normalized);
+        if (discovered.size >= maxUrls) break;
+      }
+    } catch (error) {
+      logScanPhase({
+        event: "stagehand_discovery_failed",
+        seedUrl: normalizedSeed,
+        targetUrl,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return Array.from(discovered).slice(0, maxUrls);
+};
+
+const scanPdfFromFileUrl = async (
+  fileUrl: string,
+): Promise<NormalizedFinding[]> => {
   const response = await withTimeout("PDF fetch", 30_000, async () =>
     withRetry("PDF fetch", async () => fetch(fileUrl)),
   );
@@ -797,7 +1193,9 @@ const scanPdfFromFileUrl = async (fileUrl: string): Promise<NormalizedFinding[]>
     throw new Error(`Failed to load PDF bytes (${response.status}).`);
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
-  const pdfjs = (await import("pdfjs-dist")) as { getDocument: (args: { data: Uint8Array }) => any };
+  const pdfjs = (await import("pdfjs-dist")) as {
+    getDocument: (args: { data: Uint8Array }) => any;
+  };
   const loadingTask = pdfjs.getDocument({ data: bytes });
   const document = await loadingTask.promise;
 
@@ -833,7 +1231,8 @@ const scanPdfFromFileUrl = async (fileUrl: string): Promise<NormalizedFinding[]>
       severity: "info",
       ruleId: "pdf.scan.completed",
       title: "PDF parsed successfully",
-      description: "No immediate text-layer red flags were detected automatically.",
+      description:
+        "No immediate text-layer red flags were detected automatically.",
       manualReviewRequired: true,
       confidence: 0.4,
       status: "open",
@@ -852,15 +1251,21 @@ export const processScanRun = internalAction({
   args: { scanRunId: v.id("scanRuns") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const isCanceledBeforeStart = await ctx.runQuery(internal.scans.isScanRunCanceled, {
-      scanRunId: args.scanRunId,
-    });
+    const isCanceledBeforeStart = await ctx.runQuery(
+      internal.scans.isScanRunCanceled,
+      {
+        scanRunId: args.scanRunId,
+      },
+    );
     if (isCanceledBeforeStart) {
       return null;
     }
-    const processing = await ctx.runQuery(internal.scans.getScanRunForProcessing, {
-      scanRunId: args.scanRunId,
-    });
+    const processing = await ctx.runQuery(
+      internal.scans.getScanRunForProcessing,
+      {
+        scanRunId: args.scanRunId,
+      },
+    );
     if (!processing) {
       return null;
     }
@@ -895,9 +1300,12 @@ export const processScanRun = internalAction({
         });
       }
 
-      const canceledBeforePersist = await ctx.runQuery(internal.scans.isScanRunCanceled, {
-        scanRunId: scanRun._id,
-      });
+      const canceledBeforePersist = await ctx.runQuery(
+        internal.scans.isScanRunCanceled,
+        {
+          scanRunId: scanRun._id,
+        },
+      );
       if (canceledBeforePersist) {
         return null;
       }
@@ -965,6 +1373,7 @@ export const discoverAndQueueSitePages = internalAction({
   args: {
     scanRunId: v.id("scanRuns"),
     maxUrls: v.optional(v.number()),
+    pageUrls: v.optional(v.array(v.string())),
   },
   returns: v.object({
     totalDiscovered: v.number(),
@@ -976,11 +1385,15 @@ export const discoverAndQueueSitePages = internalAction({
         event: "discover_start",
         scanRunId: args.scanRunId,
         maxUrls: args.maxUrls ?? 100,
+        pageUrlsFilter: args.pageUrls?.length ?? 0,
       }),
     );
-    const processing = (await ctx.runQuery(internal.scans.getScanRunForProcessing, {
-      scanRunId: args.scanRunId,
-    })) as ScanRunProcessingSnapshot | null;
+    const processing = (await ctx.runQuery(
+      internal.scans.getScanRunForProcessing,
+      {
+        scanRunId: args.scanRunId,
+      },
+    )) as ScanRunProcessingSnapshot | null;
     if (!processing) {
       throw new Error("Scan run not found.");
     }
@@ -989,8 +1402,51 @@ export const discoverAndQueueSitePages = internalAction({
       throw new Error("Asset is not a website URL.");
     }
 
-    const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
-    const pageUrls = await discoverWebsiteUrls(asset.normalizedUrl, maxUrls);
+    let pageUrls: string[];
+    if (args.pageUrls && args.pageUrls.length > 0) {
+      pageUrls = args.pageUrls;
+    } else {
+      const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
+      pageUrls = await discoverWebsiteUrls(asset.normalizedUrl, maxUrls);
+      if (pageUrls.length <= 1) {
+        const discoveryJobId = (await ctx.runMutation(
+          internal.scans.enqueueExternalDiscoveryJob,
+          {
+            assetId: scanRun.assetId,
+            sourceUrl: asset.normalizedUrl,
+            maxUrls,
+          },
+        )) as Id<"externalDiscoveryJobs">;
+        const pollDeadlineMs = nowMs() + 45_000;
+        while (nowMs() < pollDeadlineMs) {
+          const job = (await ctx.runQuery(internal.scans.getExternalDiscoveryJob, {
+            jobId: discoveryJobId,
+          })) as
+            | {
+                status: "queued" | "running" | "completed" | "failed";
+                discoveredUrls?: string[];
+              }
+            | null;
+          if (!job) break;
+          if (job.status === "completed") {
+            if (
+              Array.isArray(job.discoveredUrls) &&
+              job.discoveredUrls.length > pageUrls.length
+            ) {
+              pageUrls = job.discoveredUrls;
+              logScanPhase({
+                event: "discover_external_worker_fallback_used",
+                scanRunId: args.scanRunId,
+                discoveredUrls: pageUrls.length,
+              });
+            }
+            break;
+          }
+          if (job.status === "failed") break;
+          await sleep(1_000);
+        }
+      }
+    }
     if (pageUrls.length === 0) {
       throw new Error("No crawlable URLs discovered.");
     }
@@ -1034,11 +1490,14 @@ export const scanQueuedPage = internalAction({
     if (!processing) return null;
     const { scanRun, pageRun } = processing;
     const queueWaitMs = Math.max(0, nowMs() - pageRun.createdAt);
-    const claimed = await ctx.runMutation(internal.scans.claimScanRunPageForExecution, {
-      scanRunId: scanRun._id,
-      pageRunId: pageRun._id,
-      queueWaitMs,
-    });
+    const claimed = await ctx.runMutation(
+      internal.scans.claimScanRunPageForExecution,
+      {
+        scanRunId: scanRun._id,
+        pageRunId: pageRun._id,
+        queueWaitMs,
+      },
+    );
     if (!claimed) {
       console.info(
         JSON.stringify({
@@ -1120,7 +1579,14 @@ export const processQueuedPagesWithSessionLease = internalAction({
     leaseAcquired: v.boolean(),
     claimedPages: v.number(),
   }),
-  handler: async (ctx, args): Promise<{ processedPages: number; leaseAcquired: boolean; claimedPages: number }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    processedPages: number;
+    leaseAcquired: boolean;
+    claimedPages: number;
+  }> => {
     const isCanceled = await ctx.runQuery(internal.scans.isScanRunCanceled, {
       scanRunId: args.scanRunId,
     });
@@ -1130,22 +1596,26 @@ export const processQueuedPagesWithSessionLease = internalAction({
     const runtime = getSessionRuntimeConfig();
     const leaseKey = args.leaseKey ?? DEFAULT_LEASE_KEY;
     const workerId =
-      args.workerId ?? `${String(args.scanRunId)}:${nowMs()}:${Math.random().toString(36).slice(2, 10)}`;
+      args.workerId ??
+      `${String(args.scanRunId)}:${nowMs()}:${Math.random().toString(36).slice(2, 10)}`;
     const leaseNow = nowMs();
     const leaseAcquireStartedAt = nowMs();
     await ctx.runMutation(internal.scans.cleanupExpiredSessionLeases, {
       leaseKey,
       now: leaseNow,
     });
-    const leaseAcquired = await ctx.runMutation(internal.scans.acquireSessionLease, {
-      leaseKey,
-      holderId: workerId,
-      scanRunId: args.scanRunId,
-      maxConcurrent: runtime.maxConcurrentSessions,
-      ttlMs: runtime.leaseTtlMs,
-      now: leaseNow,
-      planTier: runtime.planTier,
-    });
+    const leaseAcquired = await ctx.runMutation(
+      internal.scans.acquireSessionLease,
+      {
+        leaseKey,
+        holderId: workerId,
+        scanRunId: args.scanRunId,
+        maxConcurrent: runtime.maxConcurrentSessions,
+        ttlMs: runtime.leaseTtlMs,
+        now: leaseNow,
+        planTier: runtime.planTier,
+      },
+    );
     logScanPhase({
       event: "lease_acquire_result",
       scanRunId: args.scanRunId,
@@ -1172,11 +1642,17 @@ export const processQueuedPagesWithSessionLease = internalAction({
     let sessionId: string | null = null;
 
     try {
-      const limit = Math.max(1, Math.min(50, Number(args.pageLimit ?? runtime.pagesPerSession)));
-      const claimed = await ctx.runMutation(internal.scans.claimQueuedScanRunPages, {
-        scanRunId: args.scanRunId,
-        limit,
-      });
+      const limit = Math.max(
+        1,
+        Math.min(50, Number(args.pageLimit ?? runtime.pagesPerSession)),
+      );
+      const claimed = await ctx.runMutation(
+        internal.scans.claimQueuedScanRunPages,
+        {
+          scanRunId: args.scanRunId,
+          limit,
+        },
+      );
       claimedPages = claimed.length;
       if (claimed.length === 0) {
         return { processedPages: 0, leaseAcquired: true, claimedPages: 0 };
@@ -1185,7 +1661,10 @@ export const processQueuedPagesWithSessionLease = internalAction({
       const runtimeConfig = getStagehandConfigForRuntime();
       if (!runtimeConfig) {
         for (const pageRunId of claimed) {
-          await ctx.runAction(internal.scanRunner.scanQueuedPage, { scanRunId: args.scanRunId, pageRunId });
+          await ctx.runAction(internal.scanRunner.scanQueuedPage, {
+            scanRunId: args.scanRunId,
+            pageRunId,
+          });
           processedPages += 1;
         }
         return { processedPages, leaseAcquired: true, claimedPages };
@@ -1193,25 +1672,34 @@ export const processQueuedPagesWithSessionLease = internalAction({
       const { stagehand, stagehandModelName } = runtimeConfig;
 
       for (const pageRunId of claimed) {
-        const canceledMidRun = await ctx.runQuery(internal.scans.isScanRunCanceled, {
-          scanRunId: args.scanRunId,
-        });
+        const canceledMidRun = await ctx.runQuery(
+          internal.scans.isScanRunCanceled,
+          {
+            scanRunId: args.scanRunId,
+          },
+        );
         if (canceledMidRun) {
           break;
         }
-        const processing = (await ctx.runQuery(internal.scans.getScanRunPageForProcessing, {
-          scanRunId: args.scanRunId,
-          pageRunId,
-        })) as ScanRunPageProcessingSnapshot | null;
+        const processing = (await ctx.runQuery(
+          internal.scans.getScanRunPageForProcessing,
+          {
+            scanRunId: args.scanRunId,
+            pageRunId,
+          },
+        )) as ScanRunPageProcessingSnapshot | null;
         if (!processing) continue;
         const { scanRun, pageRun } = processing;
         const queueWaitMs = Math.max(0, nowMs() - pageRun.createdAt);
 
-        const claimedForExecution = await ctx.runMutation(internal.scans.claimScanRunPageForExecution, {
-          scanRunId: scanRun._id,
-          pageRunId: pageRun._id,
-          queueWaitMs,
-        });
+        const claimedForExecution = await ctx.runMutation(
+          internal.scans.claimScanRunPageForExecution,
+          {
+            scanRunId: scanRun._id,
+            pageRunId: pageRun._id,
+            queueWaitMs,
+          },
+        );
         if (!claimedForExecution) continue;
 
         const pageStartedAt = nowMs();
@@ -1225,7 +1713,11 @@ export const processQueuedPagesWithSessionLease = internalAction({
 
         try {
           if (!sessionId) {
-            sessionId = await startSharedSessionWithRetry(ctx, stagehand, pageRun.pageUrl);
+            sessionId = await startSharedSessionWithRetry(
+              ctx,
+              stagehand,
+              pageRun.pageUrl,
+            );
           }
 
           const findings = await scanWebsiteUsingExistingSession(
@@ -1256,7 +1748,8 @@ export const processQueuedPagesWithSessionLease = internalAction({
             sessionMode: "shared",
           });
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
           if (isStagehandSessionLimitError(error)) {
             await ctx.runMutation(internal.scans.preparePageRerun, {
               scanRunId: scanRun._id,
@@ -1301,7 +1794,9 @@ export const processQueuedPagesWithSessionLease = internalAction({
     } finally {
       const runtimeConfig = getStagehandConfigForRuntime();
       if (sessionId && runtimeConfig) {
-        await runtimeConfig.stagehand.endSession(ctx, { sessionId }).catch(() => undefined);
+        await runtimeConfig.stagehand
+          .endSession(ctx, { sessionId })
+          .catch(() => undefined);
       }
       await ctx.runMutation(internal.scans.releaseSessionLease, {
         leaseKey,
@@ -1369,7 +1864,7 @@ export const e2eWebsiteScanSmoke = internalAction({
       }),
     ),
   }),
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const maxPages = Math.max(1, Math.min(500, Number(args.maxPages ?? 100)));
     const samplePages = Math.max(1, Math.min(5, Number(args.samplePages ?? 1)));
     const discovered = await discoverWebsiteUrls(args.url, maxPages);
@@ -1383,8 +1878,11 @@ export const e2eWebsiteScanSmoke = internalAction({
 
     for (const pageUrl of sampled) {
       try {
-        const response = await withTimeout("E2E page reachability", 10_000, async () =>
-          withRetry("E2E page fetch", async () => fetch(pageUrl), 1),
+        const response = await withTimeout(
+          "E2E page reachability",
+          10_000,
+          async () =>
+            withRetry("E2E page fetch", async () => fetch(pageUrl), 1),
         );
         pages.push({
           url: pageUrl,
@@ -1414,3 +1912,14 @@ export const e2eWebsiteScanSmoke = internalAction({
   },
 });
 
+export const sleepForWorkflow = internalAction({
+  args: {
+    ms: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (_ctx, args) => {
+    const delayMs = Math.max(50, Math.min(5_000, Number(args.ms ?? 750)));
+    await sleep(delayMs);
+    return null;
+  },
+});

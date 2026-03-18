@@ -6,7 +6,6 @@ import {
   FolderSearch2,
   Home,
   LayoutDashboard,
-  ShieldCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -29,7 +28,6 @@ const NAV_ICON_CLASS =
 const links = [
   { href: "/admin", label: "ADA Dashboard", icon: LayoutDashboard },
   { href: "/admin/assets", label: "Assets", icon: FolderSearch2 },
-  { href: "/admin/scans", label: "Scans", icon: ShieldCheck },
   { href: "/admin/reports", label: "Reports", icon: FileCheck2 },
   { href: "/", label: "Home", icon: Home },
   { href: "/about", label: "About", icon: FileText },

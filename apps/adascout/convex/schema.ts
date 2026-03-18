@@ -1,17 +1,20 @@
 import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+
 import {
   assetKindValidator,
   assetStatusValidator,
   findingSeverityValidator,
-  findingStatusValidator,
   findingSourceValidator,
+  findingStatusValidator,
+  findingPageRegionValidator,
+  reportLayoutValidator,
   scanRunModeValidator,
   scanRunPageStatusValidator,
   scanRunStatusValidator,
+  urlAssetScopeValidator,
   wcagProfileValidator,
-  reportLayoutValidator,
 } from "./scanTypes";
 
 export default defineSchema({
@@ -32,6 +35,7 @@ export default defineSchema({
 
   assets: defineTable({
     kind: assetKindValidator,
+    urlScope: v.optional(urlAssetScopeValidator),
     status: assetStatusValidator,
     title: v.optional(v.string()),
     sourceUrl: v.optional(v.string()),
@@ -40,6 +44,12 @@ export default defineSchema({
     filename: v.optional(v.string()),
     contentType: v.optional(v.string()),
     sizeBytes: v.optional(v.number()),
+    wpUsername: v.optional(v.string()),
+    wpAppPassword: v.optional(v.string()),
+    wpConnectedAt: v.optional(v.number()),
+    mondayApiToken: v.optional(v.string()),
+    mondayBoardId: v.optional(v.string()),
+    mondayConnectedAt: v.optional(v.number()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -74,7 +84,8 @@ export default defineSchema({
   })
     .index("by_asset_createdAt", ["assetId", "createdAt"])
     .index("by_createdBy_createdAt", ["createdBy", "createdAt"])
-    .index("by_createdBy_status", ["createdBy", "status"]),
+    .index("by_createdBy_status", ["createdBy", "status"])
+    .index("by_status_createdAt", ["status", "createdAt"]),
 
   scanRunPages: defineTable({
     scanRunId: v.id("scanRuns"),
@@ -94,6 +105,8 @@ export default defineSchema({
     lastExtractLatencyMs: v.optional(v.number()),
     lastErrorCategory: v.optional(v.string()),
     terminalErrorCategory: v.optional(v.string()),
+    pageScreenshotStorageId: v.optional(v.id("_storage")),
+    pageScreenshotCapturedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -118,6 +131,38 @@ export default defineSchema({
     .index("by_leaseKey_holderId", ["leaseKey", "holderId"])
     .index("by_scanRun_createdAt", ["scanRunId", "createdAt"]),
 
+  discoveredPages: defineTable({
+    assetId: v.id("assets"),
+    pageUrl: v.string(),
+    normalizedUrl: v.string(),
+    discoveredAt: v.number(),
+    lastScannedAt: v.optional(v.number()),
+    lastScanStatus: v.optional(scanRunPageStatusValidator),
+    lastFindingCount: v.optional(v.number()),
+  })
+    .index("by_asset_discoveredAt", ["assetId", "discoveredAt"])
+    .index("by_asset_normalizedUrl", ["assetId", "normalizedUrl"]),
+
+  externalDiscoveryJobs: defineTable({
+    assetId: v.id("assets"),
+    sourceUrl: v.string(),
+    maxUrls: v.number(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    discoveredUrls: v.optional(v.array(v.string())),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_asset_createdAt", ["assetId", "createdAt"]),
+
   findings: defineTable({
     assetId: v.id("assets"),
     scanRunId: v.id("scanRuns"),
@@ -130,6 +175,7 @@ export default defineSchema({
     help: v.optional(v.string()),
     helpUrl: v.optional(v.string()),
     target: v.optional(v.string()),
+    pageRegion: v.optional(findingPageRegionValidator),
     pageUrl: v.optional(v.string()),
     pageNumber: v.optional(v.number()),
     codeSnippet: v.optional(v.string()),
@@ -145,6 +191,13 @@ export default defineSchema({
     evidenceHash: v.optional(v.string()),
     domSnippet: v.optional(v.string()),
     selectorSnapshot: v.optional(v.string()),
+    highlightId: v.optional(v.number()),
+    bboxX: v.optional(v.number()),
+    bboxY: v.optional(v.number()),
+    bboxWidth: v.optional(v.number()),
+    bboxHeight: v.optional(v.number()),
+    screenshotViewportWidth: v.optional(v.number()),
+    screenshotViewportHeight: v.optional(v.number()),
     pageTitle: v.optional(v.string()),
     capturedAt: v.optional(v.number()),
     screenshotStorageId: v.optional(v.id("_storage")),
@@ -155,7 +208,8 @@ export default defineSchema({
     .index("by_asset_severity", ["assetId", "severity"])
     .index("by_asset_status", ["assetId", "status"])
     .index("by_status_createdAt", ["status", "createdAt"])
-    .index("by_assignee_status", ["assignee", "status"]),
+    .index("by_assignee_status", ["assignee", "status"])
+    .index("by_evidenceHash_createdAt", ["evidenceHash", "createdAt"]),
 
   reports: defineTable({
     assetId: v.id("assets"),
@@ -164,6 +218,7 @@ export default defineSchema({
     name: v.optional(v.string()),
     layout: reportLayoutValidator,
     selectedScanRunIds: v.optional(v.array(v.id("scanRuns"))),
+    selectedFindingIds: v.optional(v.array(v.id("findings"))),
     selectedSeverities: v.optional(v.array(findingSeverityValidator)),
     selectedSources: v.optional(v.array(findingSourceValidator)),
     logoStorageId: v.optional(v.id("_storage")),
@@ -190,4 +245,20 @@ export default defineSchema({
     .index("by_asset_generatedAt", ["assetId", "generatedAt"])
     .index("by_scanRun", ["scanRunId"])
     .index("by_asset_updatedAt", ["assetId", "updatedAt"]),
+
+  reportExportTemplates: defineTable({
+    createdBy: v.id("users"),
+    assetId: v.optional(v.id("assets")),
+    name: v.string(),
+    columns: v.array(
+      v.object({
+        key: v.string(),
+        label: v.string(),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_createdBy_updatedAt", ["createdBy", "updatedAt"])
+    .index("by_createdBy_asset_updatedAt", ["createdBy", "assetId", "updatedAt"]),
 });

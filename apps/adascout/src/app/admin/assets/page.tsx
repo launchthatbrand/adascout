@@ -1,13 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
+
 import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { EntityList } from "@acme/ui/entity-list";
 import { Button } from "@acme/ui/button";
-import { Input } from "@acme/ui/input";
-import { Label } from "@acme/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -16,12 +16,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@acme/ui/dialog";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { EntityList } from "@acme/ui/entity-list";
+import { Input } from "@acme/ui/input";
+import { Label } from "@acme/ui/label";
 
 type AssetRow = Record<string, unknown> & {
   id: string;
   kind: "url" | "file_pdf";
+  urlScope?: "single_page" | "website";
   title: string;
   source: string;
   status: string;
@@ -29,6 +31,7 @@ type AssetRow = Record<string, unknown> & {
   createdAt: number;
   latestScanRunId?: string;
   latestScanStatus?: string;
+  discoveredPagesCount?: number;
 };
 
 export default function AssetsPage() {
@@ -45,17 +48,25 @@ export default function AssetsPage() {
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [urlValue, setUrlValue] = useState("");
   const [urlTitle, setUrlTitle] = useState("");
+  const [urlScope, setUrlScope] = useState<"single_page" | "website">("website");
   const [statusMessage, setStatusMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
 
   const latestByAsset = useMemo(() => {
-    const map = new Map<string, { id: string; status: string; createdAt: number }>();
+    const map = new Map<
+      string,
+      { id: string; status: string; createdAt: number }
+    >();
     for (const run of scanRuns ?? []) {
       const key = String(run.assetId);
       const existing = map.get(key);
       if (!existing || run.createdAt > existing.createdAt) {
-        map.set(key, { id: String(run._id), status: run.status, createdAt: run.createdAt });
+        map.set(key, {
+          id: String(run._id),
+          status: run.status,
+          createdAt: run.createdAt,
+        });
       }
     }
     return map;
@@ -68,16 +79,22 @@ export default function AssetsPage() {
         return {
           id: String(asset._id),
           kind: asset.kind,
-          title: asset.title ?? asset.filename ?? asset.sourceUrl ?? String(asset._id),
+          urlScope: asset.urlScope,
+          title:
+            asset.title ??
+            asset.filename ??
+            asset.sourceUrl ??
+            String(asset._id),
           source:
             asset.kind === "url"
-              ? asset.normalizedUrl ?? asset.sourceUrl ?? "—"
-              : asset.filename ?? "Uploaded PDF",
+              ? (asset.normalizedUrl ?? asset.sourceUrl ?? "—")
+              : (asset.filename ?? "Uploaded PDF"),
           status: asset.status,
           sizeBytes: asset.sizeBytes,
           createdAt: asset.createdAt,
           latestScanRunId: latest?.id,
           latestScanStatus: latest?.status,
+          discoveredPagesCount: undefined,
         };
       }),
     [assets, latestByAsset],
@@ -89,12 +106,18 @@ export default function AssetsPage() {
         id: "title",
         header: "Asset",
         accessorKey: "title",
+        minWidth: "200px",
         cell: (row: AssetRow) => (
           <div className="space-y-1">
-            <Link href={`/admin/assets/${row.id}`} className="font-medium underline underline-offset-4">
+            <Link
+              href={`/admin/assets/${row.id}`}
+              className="font-medium text-indigo-600 underline underline-offset-4 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+            >
               {row.title}
             </Link>
-            <div className="text-muted-foreground text-xs">{row.kind === "url" ? "Website URL" : "PDF file"}</div>
+            <div className="text-muted-foreground text-xs">
+              {row.kind === "url" ? "Website URL" : "PDF file"}
+            </div>
           </div>
         ),
       },
@@ -102,15 +125,38 @@ export default function AssetsPage() {
         id: "source",
         header: "Source",
         accessorKey: "source",
-        cell: (row: AssetRow) => <div className="text-sm break-all">{row.source}</div>,
+        minWidth: "250px",
+        cell: (row: AssetRow) => (
+          <div className="max-w-[300px] truncate text-sm break-all">
+            {row.source}
+          </div>
+        ),
+      },
+      {
+        id: "pages",
+        header: "Pages",
+        accessorKey: "discoveredPagesCount",
+        minWidth: "80px",
+        cell: (row: AssetRow) =>
+          row.kind === "url" ? (
+            <span className="text-sm">
+              {row.discoveredPagesCount !== undefined
+                ? `${row.discoveredPagesCount}`
+                : "—"}
+            </span>
+          ) : null,
       },
       {
         id: "scan",
         header: "Latest Scan",
         accessorKey: "latestScanStatus",
+        minWidth: "120px",
         cell: (row: AssetRow) =>
           row.latestScanRunId ? (
-            <Link className="text-sm underline underline-offset-4" href={`/admin/scans/${row.latestScanRunId}`}>
+            <Link
+              className="text-sm text-indigo-600 underline underline-offset-4 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+              href={`/admin/scans/${row.latestScanRunId}`}
+            >
               {row.latestScanStatus ?? "unknown"}
             </Link>
           ) : (
@@ -121,6 +167,7 @@ export default function AssetsPage() {
         id: "actions",
         header: "Actions",
         accessorKey: "id",
+        minWidth: "180px",
         cell: (row: AssetRow) => (
           <div className="flex items-center gap-2">
             <Button
@@ -130,7 +177,11 @@ export default function AssetsPage() {
                   await createScanRun({ assetId: row.id as Id<"assets"> });
                   setStatusMessage("Scan queued.");
                 } catch (error) {
-                  setStatusMessage(error instanceof Error ? error.message : "Failed to queue scan.");
+                  setStatusMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to queue scan.",
+                  );
                 }
               }}
             >
@@ -150,7 +201,11 @@ export default function AssetsPage() {
                   await deleteAsset({ assetId: row.id as Id<"assets"> });
                   setStatusMessage("Asset deleted.");
                 } catch (error) {
-                  setStatusMessage(error instanceof Error ? error.message : "Failed to delete asset.");
+                  setStatusMessage(
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to delete asset.",
+                  );
                 } finally {
                   setDeletingAssetId(null);
                 }
@@ -169,13 +224,22 @@ export default function AssetsPage() {
     if (!urlValue.trim()) return;
     try {
       setIsSubmitting(true);
-      await createUrlAsset({ sourceUrl: urlValue, title: urlTitle || undefined });
-      setStatusMessage("URL asset added.");
+      const result = await createUrlAsset({
+        sourceUrl: urlValue,
+        title: urlTitle || undefined,
+        scanScope: urlScope,
+      });
+      setStatusMessage(
+        `URL asset added. ${result.discoveredPages.length} pages discovered.`,
+      );
       setUrlDialogOpen(false);
       setUrlValue("");
       setUrlTitle("");
+      setUrlScope("website");
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Failed to add URL.");
+      setStatusMessage(
+        error instanceof Error ? error.message : "Failed to add URL.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -206,7 +270,9 @@ export default function AssetsPage() {
       });
       setStatusMessage("PDF asset uploaded.");
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Failed to upload PDF.");
+      setStatusMessage(
+        error instanceof Error ? error.message : "Failed to upload PDF.",
+      );
     } finally {
       setIsSubmitting(false);
       if (fileInputRef.current) {
@@ -239,10 +305,17 @@ export default function AssetsPage() {
                 if (file) void handleUploadPdf(file);
               }}
             />
-            <Button variant="outline" disabled={isSubmitting} onClick={() => fileInputRef.current?.click()}>
+            <Button
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => fileInputRef.current?.click()}
+            >
               Upload PDF
             </Button>
-            <Button disabled={isSubmitting} onClick={() => setUrlDialogOpen(true)}>
+            <Button
+              disabled={isSubmitting}
+              onClick={() => setUrlDialogOpen(true)}
+            >
               Add Website URL
             </Button>
           </div>
@@ -260,7 +333,8 @@ export default function AssetsPage() {
           <DialogHeader>
             <DialogTitle>Add website URL</DialogTitle>
             <DialogDescription>
-              ADA Scout will run WCAG 2.2 AA automated checks and generate remediation guidance.
+              ADA Scout will run WCAG 2.2 AA automated checks and generate
+              remediation guidance.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -282,12 +356,37 @@ export default function AssetsPage() {
                 placeholder="https://example.com"
               />
             </div>
+            <div className="space-y-2">
+              <Label>Scan scope</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={urlScope === "single_page" ? "default" : "outline"}
+                  onClick={() => setUrlScope("single_page")}
+                >
+                  Single Page
+                </Button>
+                <Button
+                  type="button"
+                  variant={urlScope === "website" ? "default" : "outline"}
+                  onClick={() => setUrlScope("website")}
+                >
+                  Entire Website
+                </Button>
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Single Page keeps detection and scans to this URL only.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUrlDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void handleCreateUrl()} disabled={isSubmitting || !urlValue.trim()}>
+            <Button
+              onClick={() => void handleCreateUrl()}
+              disabled={isSubmitting || !urlValue.trim()}
+            >
               {isSubmitting ? "Saving..." : "Add URL"}
             </Button>
           </DialogFooter>
@@ -296,4 +395,3 @@ export default function AssetsPage() {
     </section>
   );
 }
-
