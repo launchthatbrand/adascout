@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@acme/ui": "workspace:*",
-    "@axe-core/playwright": "^4.10.2",
+    "@axe-core/playwright": "^4.11.0",
     "@browserbasehq/convex-stagehand": "^0.0.3",
     "@browserbasehq/stagehand": "^3.1.0",
     "@convex-dev/auth": "^0.0.90",
