@@ -34,6 +34,8 @@ type AssetRow = Record<string, unknown> & {
   discoveredPagesCount?: number;
 };
 
+const MAX_PDF_UPLOAD_BYTES = 100 * 1024 * 1024; // Keep in sync with convex/assets.ts
+
 export default function AssetsPage() {
   const assets = useQuery(api.assets.listMyAssets, { limit: 200 });
   const scanRuns = useQuery(api.scans.listMyScanRuns, { limit: 300 });
@@ -248,6 +250,11 @@ export default function AssetsPage() {
   const handleUploadPdf = async (file: File) => {
     try {
       setIsSubmitting(true);
+      if (file.size <= 0 || file.size > MAX_PDF_UPLOAD_BYTES) {
+        throw new Error(
+          `PDF must be between 1 byte and ${Math.round(MAX_PDF_UPLOAD_BYTES / (1024 * 1024))} MB.`,
+        );
+      }
       const uploadUrl = await generateUploadUrl({});
       const response = await fetch(uploadUrl, {
         method: "POST",

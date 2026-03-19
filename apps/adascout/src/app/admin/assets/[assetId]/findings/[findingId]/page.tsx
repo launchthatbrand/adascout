@@ -2,7 +2,7 @@
 
 import type { Id } from "@/convex/_generated/dataModel";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 
@@ -11,6 +11,8 @@ import { Button } from "@acme/ui/button";
 
 export default function FindingDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const focusSection = searchParams.get("section");
   const assetIdParam = params.assetId;
   const findingIdParam = params.findingId;
   const assetId =
@@ -30,12 +32,20 @@ export default function FindingDetailPage() {
     api.findings.getFindingHistory,
     findingId ? { findingId } : "skip",
   );
-  const asset = useQuery(api.assets.getMyAsset, assetId ? { assetId } : "skip");
   const updateFindingStatus = useMutation(api.findings.updateMyFindingStatus);
   const assignFinding = useMutation(api.findings.assignMyFinding);
   const actor = useQuery(api.findings.getMyFindingActor, {}) as
     | { userId: Id<"users"> }
     | undefined;
+  const playbook = useQuery(
+    api.remediation.getRemediationPlaybook,
+    finding
+      ? {
+          source: finding.source,
+          ruleId: finding.ruleId,
+        }
+      : "skip",
+  );
 
   if (finding === undefined) {
     return (
@@ -195,6 +205,27 @@ export default function FindingDetailPage() {
               </a>
             </div>
           )}
+
+          {playbook ? (
+            <div
+              id="playbook"
+              className={`rounded-lg border p-4 ${
+                focusSection === "playbook"
+                  ? "border-indigo-300 bg-indigo-50/60"
+                  : "border-border/60 bg-muted/20"
+              }`}
+            >
+              <p className="text-muted-foreground text-xs tracking-[0.12em] uppercase">
+                Remediation Playbook
+              </p>
+              <h2 className="mt-1 text-base font-semibold">{playbook.title}</h2>
+              <ol className="mt-3 list-inside list-decimal space-y-1 text-sm">
+                {playbook.steps.map((step: string, index: number) => (
+                  <li key={`${index}-${step}`}>{step}</li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
 
           {finding.codeSnippet && (
             <div>

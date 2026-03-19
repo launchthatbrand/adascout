@@ -10,6 +10,13 @@ import {
   urlAssetScopeValidator,
 } from "./scanTypes";
 
+const MAX_PDF_BYTES = 100 * 1024 * 1024; // 100 MB
+
+const formatBytes = (bytes: number): string => {
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(0)} MB`;
+};
+
 export const generateAssetUploadUrl = mutation({
   args: {},
   returns: v.string(),
@@ -92,10 +99,9 @@ export const createPdfAsset = mutation({
     if (contentType && !contentType.includes("pdf")) {
       throw new Error("Only PDF uploads are supported.");
     }
-    const maxPdfBytes = 25 * 1024 * 1024;
-    if (args.sizeBytes <= 0 || args.sizeBytes > maxPdfBytes) {
+    if (args.sizeBytes <= 0 || args.sizeBytes > MAX_PDF_BYTES) {
       throw new Error(
-        `PDF size must be between 1 byte and ${maxPdfBytes} bytes.`,
+        `PDF size must be between 1 byte and ${formatBytes(MAX_PDF_BYTES)}.`,
       );
     }
     const now = nowMs();

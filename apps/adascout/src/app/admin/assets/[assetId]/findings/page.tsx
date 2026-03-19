@@ -11,6 +11,12 @@ import type { ColumnDefinition } from "@acme/ui/entity-list";
 import { Button } from "@acme/ui/button";
 import { EntityList } from "@acme/ui/entity-list";
 
+const PDF_IMAGE_RULE_IDS = new Set<string>([
+  "pdf.image.text_detected_low_contrast",
+  "pdf.image.text_detected_blurry",
+  "pdf.image.meaningful_image_needs_alt_review",
+]);
+
 type FindingRow = Record<string, unknown> & {
   id: string;
   title: string;
@@ -60,6 +66,10 @@ const getStatusColorClass = (status: string) => {
 
 export default function AssetFindingsPage() {
   const router = useRouter();
+  const [sourceFilter, setSourceFilter] = useState<
+    "all" | "axe" | "ibm" | "pdf" | "stagehand"
+  >("all");
+  const [ruleFocus, setRuleFocus] = useState<"all" | "pdf_images">("all");
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [reportActionMessage, setReportActionMessage] = useState<string | null>(
     null,
@@ -95,7 +105,16 @@ export default function AssetFindingsPage() {
 
   const findingRows = useMemo<FindingRow[]>(
     () =>
-      (allFindings ?? []).map((finding) => ({
+      (allFindings ?? [])
+        .filter((finding) =>
+          sourceFilter === "all" ? true : finding.source === sourceFilter,
+        )
+        .filter((finding) =>
+          ruleFocus === "pdf_images"
+            ? PDF_IMAGE_RULE_IDS.has(finding.ruleId)
+            : true,
+        )
+        .map((finding) => ({
         id: String(finding._id),
         title: finding.title,
         status: finding.status ?? "open",
@@ -110,8 +129,18 @@ export default function AssetFindingsPage() {
         assignee: finding.assignee ? String(finding.assignee) : undefined,
         dueAt: finding.dueAt,
       })),
-    [allFindings],
+    [allFindings, sourceFilter, ruleFocus],
   );
+  const findingCounts = useMemo(() => {
+    const rows = allFindings ?? [];
+    const pdfRows = rows.filter((row) => row.source === "pdf");
+    const pdfImageRows = rows.filter((row) => PDF_IMAGE_RULE_IDS.has(row.ruleId));
+    return {
+      all: rows.length,
+      pdf: pdfRows.length,
+      pdfImages: pdfImageRows.length,
+    };
+  }, [allFindings]);
 
   const findingColumns = useMemo<ColumnDefinition<FindingRow>[]>(
     () => [
@@ -232,6 +261,13 @@ export default function AssetFindingsPage() {
                 View
               </Link>
             </Button>
+            <Button size="sm" variant="outline" asChild>
+              <Link
+                href={`/admin/assets/${assetId}/findings/${row.id}?section=playbook`}
+              >
+                Playbook
+              </Link>
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -283,7 +319,47 @@ export default function AssetFindingsPage() {
         data={findingRows}
         columns={findingColumns}
         title="All Findings"
-        description="All findings for this asset across all scans."
+        description={
+          ruleFocus === "pdf_images"
+            ? "Image-oriented PDF findings (contrast, blur, alt-review) with remediation playbooks."
+            : sourceFilter === "pdf"
+            ? "PDF findings with remediation playbook links."
+            : "All findings for this asset across all scans."
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={sourceFilter === "all" ? "default" : "outline"}
+              onClick={() => {
+                setSourceFilter("all");
+                setRuleFocus("all");
+              }}
+            >
+              All Sources ({findingCounts.all})
+            </Button>
+            <Button
+              size="sm"
+              variant={sourceFilter === "pdf" ? "default" : "outline"}
+              onClick={() => {
+                setSourceFilter("pdf");
+                setRuleFocus("all");
+              }}
+            >
+              PDF Only ({findingCounts.pdf})
+            </Button>
+            <Button
+              size="sm"
+              variant={ruleFocus === "pdf_images" ? "default" : "outline"}
+              onClick={() => {
+                setSourceFilter("pdf");
+                setRuleFocus("pdf_images");
+              }}
+            >
+              Image Checks ({findingCounts.pdfImages})
+            </Button>
+          </div>
+        }
         defaultViewMode="list"
         viewModes={[]}
         enableSearch

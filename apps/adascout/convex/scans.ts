@@ -73,6 +73,26 @@ const computeSummary = (findings: FindingSummaryRow[]) => {
   return summary;
 };
 
+const computeCompliance = (
+  summary: ReturnType<typeof computeSummary>,
+): {
+  score: number;
+  band: "pass" | "warn" | "fail";
+  weightedPenalty: number;
+} => {
+  const weightedPenalty =
+    summary.critical * 20 +
+    summary.serious * 12 +
+    summary.moderate * 6 +
+    summary.minor * 2 +
+    summary.info +
+    summary.manualReviewRequired * 2;
+  const score = Math.max(0, Math.min(100, Math.round(100 - weightedPenalty)));
+  const band: "pass" | "warn" | "fail" =
+    score >= 90 ? "pass" : score >= 70 ? "warn" : "fail";
+  return { score, band, weightedPenalty };
+};
+
 const computeEvidenceHash = (args: {
   source: "axe" | "ibm" | "pdf" | "stagehand";
   ruleId: string;
@@ -184,6 +204,7 @@ const buildReportMarkdown = (args: {
   profile: "wcag_2_2_aa";
   generatedAt: number;
   summary: ReturnType<typeof computeSummary>;
+  compliance: ReturnType<typeof computeCompliance>;
   totalPages?: number;
   completedPages?: number;
   failedPages?: number;
@@ -209,6 +230,14 @@ const buildReportMarkdown = (args: {
     `- Minor: ${args.summary.minor}`,
     `- Info: ${args.summary.info}`,
     `- Manual review required: ${args.summary.manualReviewRequired}`,
+    "",
+    "## Compliance",
+    `- Score: ${args.compliance.score}/100 (${args.compliance.band})`,
+    `- Weighted penalty: ${args.compliance.weightedPenalty}`,
+    "",
+    "## Disclaimer",
+    "- This is an automated best-effort pre-audit and not a legal certification.",
+    "- Manual accessibility verification is recommended for complex content.",
   ]
     .filter((line): line is string => line !== null)
     .join("\n");
@@ -1805,6 +1834,7 @@ export const finalizeWebsiteScanRun = internalMutation({
       manualReviewRequired: row.manualReviewRequired,
     })) satisfies FindingSummaryRow[];
     const summary = computeSummary(findings);
+    const compliance = computeCompliance(summary);
     const generatedAt = nowMs();
     const asset = await ctx.db.get(scanRun.assetId);
     const assetLabel =
@@ -1817,6 +1847,7 @@ export const finalizeWebsiteScanRun = internalMutation({
       profile: scanRun.profile,
       generatedAt,
       summary,
+      compliance,
       totalPages: progress.totalPages,
       completedPages: progress.completedPages,
       failedPages: progress.failedPages,
@@ -1844,7 +1875,7 @@ export const finalizeWebsiteScanRun = internalMutation({
       failedPages: progress.failedPages,
       generatedAt,
       markdown,
-      json: JSON.stringify({ summary }, null, 2),
+      json: JSON.stringify({ summary, compliance }, null, 2),
       status: "completed" as const,
     };
   },

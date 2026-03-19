@@ -53,6 +53,176 @@ interface NormalizedFinding {
   screenshotStorageId?: Id<"_storage">;
 }
 
+interface PdfTextItem {
+  str?: string;
+  transform?: number[];
+}
+
+interface PdfScanFacts {
+  pageCount: number;
+  documentTitle?: string;
+  documentLanguage?: string;
+  hasTags: boolean;
+  textlessPages: number[];
+  lowConfidencePages: Array<{ pageNumber: number; score: number }>;
+  likelyTablePages: number[];
+  suspectReadingOrderPages: number[];
+  genericOrUnlabeledFormFieldNames: string[];
+  imageHeavyPages: number[];
+  lowContrastCandidatePages: Array<{ pageNumber: number; score: number }>;
+  blurryImageTextPages: Array<{ pageNumber: number; score: number }>;
+  meaningfulImageReviewPages: number[];
+  pageProcessingErrors: Array<{ pageNumber: number; message: string }>;
+}
+
+type PdfCheckStatus = "pass" | "warn" | "fail";
+
+interface PdfDocumentCheck {
+  id: string;
+  label: string;
+  status: PdfCheckStatus;
+  detail: string;
+}
+
+interface PdfPageCheck {
+  id: string;
+  label: string;
+  status: PdfCheckStatus;
+  totalPages: number;
+  passCount: number;
+  failCount: number;
+  detail: string;
+}
+
+interface PdfChecksSnapshot {
+  version: number;
+  documentChecks: PdfDocumentCheck[];
+  pageChecks: PdfPageCheck[];
+}
+
+const buildPdfChecksSnapshotFromFindings = (
+  findings: NormalizedFinding[],
+): PdfChecksSnapshot => {
+  const pdfFindings = findings.filter((row) => row.source === "pdf");
+  const pageNumbers = pdfFindings
+    .map((row) => Number(row.pageNumber ?? 0))
+    .filter((row) => Number.isFinite(row) && row > 0);
+  const totalPages = Math.max(0, ...pageNumbers, 0);
+  const countPageFailures = (ruleId: string): number => {
+    const pages = new Set<number>();
+    let entries = 0;
+    for (const finding of pdfFindings) {
+      if (finding.ruleId !== ruleId) continue;
+      entries += 1;
+      const pageNumber = Number(finding.pageNumber ?? 0);
+      if (Number.isFinite(pageNumber) && pageNumber > 0) {
+        pages.add(pageNumber);
+      }
+    }
+    return pages.size > 0 ? pages.size : entries;
+  };
+  const hasRule = (ruleId: string) =>
+    pdfFindings.some((finding) => finding.ruleId === ruleId);
+  const asPageCheck = (args: {
+    id: string;
+    label: string;
+    failCount: number;
+    detail: string;
+    failAsWarn?: boolean;
+  }): PdfPageCheck => {
+    const boundedFailCount = Math.max(0, Math.min(args.failCount, totalPages));
+    return {
+      id: args.id,
+      label: args.label,
+      status:
+        boundedFailCount <= 0 ? "pass" : args.failAsWarn ? "warn" : "fail",
+      totalPages,
+      passCount: Math.max(0, totalPages - boundedFailCount),
+      failCount: boundedFailCount,
+      detail: args.detail,
+    };
+  };
+  return {
+    version: 1,
+    documentChecks: [
+      {
+        id: "pdf.meta.title",
+        label: "Document title metadata",
+        status: hasRule("pdf.meta.title_missing") ? "fail" : "pass",
+        detail: hasRule("pdf.meta.title_missing")
+          ? "Title metadata appears missing."
+          : "No title metadata issue detected.",
+      },
+      {
+        id: "pdf.meta.language",
+        label: "Document language metadata",
+        status: hasRule("pdf.meta.language_missing") ? "fail" : "pass",
+        detail: hasRule("pdf.meta.language_missing")
+          ? "Primary language appears missing."
+          : "No language metadata issue detected.",
+      },
+      {
+        id: "pdf.tagging.struct_tree",
+        label: "Structural tag tree",
+        status: hasRule("pdf.tagging.missing") ? "fail" : "pass",
+        detail: hasRule("pdf.tagging.missing")
+          ? "Tag tree appears missing."
+          : "No tag-tree issue detected.",
+      },
+    ],
+    pageChecks: [
+      asPageCheck({
+        id: "pdf.text_layer.coverage",
+        label: "Text layer detected per page",
+        failCount: countPageFailures("pdf.text_layer.missing_page"),
+        detail: "Derived from recorded text-layer findings.",
+      }),
+      asPageCheck({
+        id: "pdf.ocr.quality_confidence",
+        label: "OCR text quality confidence",
+        failCount: countPageFailures("pdf.scan_quality.low_confidence_ocr"),
+        failAsWarn: true,
+        detail: "Derived from low-confidence OCR findings.",
+      }),
+      asPageCheck({
+        id: "pdf.reading_order.heuristic",
+        label: "Reading order heuristic",
+        failCount: countPageFailures("pdf.reading_order.suspect"),
+        failAsWarn: true,
+        detail: "Derived from reading-order heuristic findings.",
+      }),
+      asPageCheck({
+        id: "pdf.table.header_heuristic",
+        label: "Table header semantics heuristic",
+        failCount: countPageFailures("pdf.table.header_missing"),
+        failAsWarn: true,
+        detail: "Derived from table-header semantic findings.",
+      }),
+      asPageCheck({
+        id: "pdf.image.low_contrast",
+        label: "Image text contrast heuristic",
+        failCount: countPageFailures("pdf.image.text_detected_low_contrast"),
+        failAsWarn: true,
+        detail: "Derived from image low-contrast findings.",
+      }),
+      asPageCheck({
+        id: "pdf.image.blur",
+        label: "Image text sharpness heuristic",
+        failCount: countPageFailures("pdf.image.text_detected_blurry"),
+        failAsWarn: true,
+        detail: "Derived from image blur findings.",
+      }),
+      asPageCheck({
+        id: "pdf.image.alt_review",
+        label: "Meaningful image alternative review",
+        failCount: countPageFailures("pdf.image.meaningful_image_needs_alt_review"),
+        failAsWarn: true,
+        detail: "Derived from image alt-review findings.",
+      }),
+    ],
+  };
+};
+
 interface ScanRunProcessingSnapshot {
   scanRun: {
     _id: Id<"scanRuns">;
@@ -167,6 +337,20 @@ const computeSummary = (findings: NormalizedFinding[]) => {
     }
   }
   return summary;
+};
+
+const computeCompliance = (summary: ReturnType<typeof computeSummary>) => {
+  const weightedPenalty =
+    summary.critical * 20 +
+    summary.serious * 12 +
+    summary.moderate * 6 +
+    summary.minor * 2 +
+    summary.info +
+    summary.manualReviewRequired * 2;
+  const score = Math.max(0, Math.min(100, Math.round(100 - weightedPenalty)));
+  const band: "pass" | "warn" | "fail" =
+    score >= 90 ? "pass" : score >= 70 ? "warn" : "fail";
+  return { score, band, weightedPenalty };
 };
 
 const severityFromAxeImpact = (
@@ -1186,64 +1370,877 @@ export const discoverWebsiteUrlsViaStagehand = async (
 const scanPdfFromFileUrl = async (
   fileUrl: string,
 ): Promise<NormalizedFinding[]> => {
+  const scanStartedAt = nowMs();
+  logScanPhase({
+    event: "pdf_scan_start",
+    fileUrl,
+  });
   const response = await withTimeout("PDF fetch", 30_000, async () =>
     withRetry("PDF fetch", async () => fetch(fileUrl)),
   );
   if (!response.ok) {
+    logScanPhase({
+      event: "pdf_scan_fetch_failed",
+      fileUrl,
+      status: response.status,
+      durationMs: nowMs() - scanStartedAt,
+    });
     throw new Error(`Failed to load PDF bytes (${response.status}).`);
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
-  const pdfjs = (await import("pdfjs-dist")) as {
-    getDocument: (args: { data: Uint8Array }) => any;
+  logScanPhase({
+    event: "pdf_scan_fetch_complete",
+    fileUrl,
+    byteLength: bytes.byteLength,
+    durationMs: nowMs() - scanStartedAt,
+  });
+  const pdfjsModule = (await import("pdfjs-dist")) as {
+    getDocument?: (args: { data: Uint8Array }) => any;
+    default?: { getDocument?: (args: { data: Uint8Array }) => any };
   };
-  const loadingTask = pdfjs.getDocument({ data: bytes });
+  const getDocumentFn =
+    pdfjsModule.getDocument ?? pdfjsModule.default?.getDocument;
+  if (typeof getDocumentFn !== "function") {
+    logScanPhase({
+      event: "pdf_scan_runtime_module_shape_error",
+      fileUrl,
+      hasNamedGetDocument: typeof pdfjsModule.getDocument === "function",
+      hasDefaultGetDocument:
+        typeof pdfjsModule.default?.getDocument === "function",
+      moduleKeys: Object.keys(pdfjsModule).slice(0, 20),
+      durationMs: nowMs() - scanStartedAt,
+    });
+    throw new Error(
+      "pdfjs-dist runtime module does not expose getDocument().",
+    );
+  }
+  const loadingTask = getDocumentFn({ data: bytes });
   const document = await loadingTask.promise;
+  logScanPhase({
+    event: "pdf_scan_document_loaded",
+    fileUrl,
+    pageCount: document.numPages,
+    durationMs: nowMs() - scanStartedAt,
+  });
+
+  const parsePositiveInt = (value: string | undefined, fallback: number) => {
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  };
+  const parseBooleanEnv = (value: string | undefined, fallback: boolean): boolean => {
+    if (value === undefined) return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0" || normalized === "no") {
+      return false;
+    }
+    return fallback;
+  };
+  const rulesEnabled =
+    (process.env.ADA_PDF_RULES_V1_ENABLED ?? "true").trim().toLowerCase() !==
+    "false";
+  const imageRulesEnabled = parseBooleanEnv(
+    process.env.ADA_PDF_IMAGE_RULES_ENABLED,
+    false,
+  );
+  const imageDpi = Math.max(
+    72,
+    Math.min(600, parsePositiveInt(process.env.ADA_PDF_IMAGE_DPI, 150)),
+  );
+  const imageBlurThreshold = Math.max(
+    1,
+    Math.min(
+      100,
+      parsePositiveInt(process.env.ADA_PDF_IMAGE_BLUR_THRESHOLD, 45),
+    ),
+  );
+  const imageContrastThreshold = Math.max(
+    1,
+    Math.min(
+      100,
+      parsePositiveInt(process.env.ADA_PDF_IMAGE_CONTRAST_THRESHOLD, 60),
+    ),
+  );
+  const lowConfidenceThreshold = Math.max(
+    1,
+    Math.min(
+      100,
+      parsePositiveInt(process.env.ADA_PDF_OCR_LOW_CONFIDENCE_THRESHOLD, 55),
+    ),
+  );
+  logScanPhase({
+    event: "pdf_scan_rules_config",
+    fileUrl,
+    rulesEnabled,
+    imageRulesEnabled,
+    imageDpi,
+    imageBlurThreshold,
+    imageContrastThreshold,
+    lowConfidenceThreshold,
+    durationMs: nowMs() - scanStartedAt,
+  });
+
+  const scoreTextQuality = (rawTextItems: PdfTextItem[]): number => {
+    const text = rawTextItems
+      .map((item) => String(item?.str ?? ""))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) return 0;
+    const letters = (text.match(/[A-Za-z]/g) ?? []).length;
+    const digits = (text.match(/[0-9]/g) ?? []).length;
+    const weird = (text.match(/[^A-Za-z0-9\s.,;:!?'"()\-\u2019]/g) ?? []).length;
+    const words = text.split(/\s+/).filter((part) => part.length > 0);
+    const shortWords = words.filter((part) => part.length <= 2).length;
+    const avgWordLength = words.length
+      ? words.reduce((sum, part) => sum + part.length, 0) / words.length
+      : 0;
+    const charCount = text.length;
+    const alphaDigitRatio = charCount > 0 ? (letters + digits) / charCount : 0;
+    const weirdRatio = charCount > 0 ? weird / charCount : 1;
+    const shortWordRatio = words.length > 0 ? shortWords / words.length : 1;
+
+    let score = 100;
+    score -= Math.round((1 - alphaDigitRatio) * 45);
+    score -= Math.round(weirdRatio * 60);
+    if (avgWordLength > 0 && avgWordLength < 3) score -= 12;
+    if (shortWordRatio > 0.5) score -= 10;
+    if (words.length < 8) score -= 8;
+    return Math.max(0, Math.min(100, score));
+  };
+
+  const hasLikelyTablePattern = (rawTextItems: PdfTextItem[]): boolean => {
+    const positioned = rawTextItems
+      .map((item) => {
+        const y = Array.isArray(item.transform) ? Number(item.transform[5]) : NaN;
+        const x = Array.isArray(item.transform) ? Number(item.transform[4]) : NaN;
+        return {
+          text: String(item.str ?? "").trim(),
+          x,
+          y,
+        };
+      })
+      .filter((row) => row.text.length > 0 && Number.isFinite(row.x) && Number.isFinite(row.y));
+    if (positioned.length < 30) return false;
+    const rows = new Map<number, number>();
+    for (const item of positioned) {
+      const bucket = Math.round(item.y / 12);
+      rows.set(bucket, (rows.get(bucket) ?? 0) + 1);
+    }
+    const denseRows = Array.from(rows.values()).filter((count) => count >= 4).length;
+    return denseRows >= 5;
+  };
+
+  const hasSuspectReadingOrderPattern = (rawTextItems: PdfTextItem[]): boolean => {
+    const ys = rawTextItems
+      .map((item) => (Array.isArray(item.transform) ? Number(item.transform[5]) : NaN))
+      .filter((value) => Number.isFinite(value));
+    if (ys.length < 15) return false;
+    let largeUpwardJumps = 0;
+    for (let index = 1; index < ys.length; index += 1) {
+      const current = ys[index];
+      const previous = ys[index - 1];
+      if (current === undefined || previous === undefined) continue;
+      const delta = current - previous;
+      if (delta > 45) largeUpwardJumps += 1;
+    }
+    return largeUpwardJumps >= 5;
+  };
+
+  const collectPdfFacts = async (): Promise<PdfScanFacts> => {
+    const metadataResult = await document
+      .getMetadata()
+      .catch(() => ({ info: {} as Record<string, unknown> }));
+    const info = (metadataResult as { info?: Record<string, unknown> }).info ?? {};
+    const documentTitle =
+      typeof info.Title === "string" ? info.Title.trim() : undefined;
+    const documentLanguage =
+      (typeof info.Lang === "string" ? info.Lang : undefined) ??
+      (typeof info.Language === "string" ? info.Language : undefined);
+    const normalizedLanguage = documentLanguage?.trim();
+    logScanPhase({
+      event: "pdf_scan_metadata_parsed",
+      fileUrl,
+      hasTitle: Boolean(documentTitle),
+      hasLanguage: Boolean(normalizedLanguage),
+      durationMs: nowMs() - scanStartedAt,
+    });
+
+    const textlessPages: number[] = [];
+    const lowConfidencePages: Array<{ pageNumber: number; score: number }> = [];
+    const likelyTablePages: number[] = [];
+    const suspectReadingOrderPages: number[] = [];
+    const imageHeavyPages: number[] = [];
+    const lowContrastCandidatePages: Array<{ pageNumber: number; score: number }> =
+      [];
+    const blurryImageTextPages: Array<{ pageNumber: number; score: number }> = [];
+    const meaningfulImageReviewPages: number[] = [];
+    const pageProcessingErrors: Array<{ pageNumber: number; message: string }> = [];
+    let hasTags = false;
+    for (let pageIndex = 1; pageIndex <= document.numPages; pageIndex += 1) {
+      try {
+        const page = await document.getPage(pageIndex);
+        const textContent = await page.getTextContent();
+        const textItems = (Array.isArray(textContent.items)
+          ? textContent.items
+          : []) as PdfTextItem[];
+        if (textItems.length === 0) {
+          textlessPages.push(pageIndex);
+        } else {
+          const textQualityScore = scoreTextQuality(textItems);
+          if (textQualityScore < lowConfidenceThreshold) {
+            lowConfidencePages.push({ pageNumber: pageIndex, score: textQualityScore });
+          }
+          if (hasLikelyTablePattern(textItems)) {
+            likelyTablePages.push(pageIndex);
+          }
+          if (hasSuspectReadingOrderPattern(textItems)) {
+            suspectReadingOrderPages.push(pageIndex);
+          }
+        }
+
+        if (imageRulesEnabled) {
+          // NOTE: This is a deterministic heuristic pass over PDF operator streams.
+          // It approximates image-heavy pages and text-rendering quality risk.
+          const operatorList = await (
+            page as unknown as {
+              getOperatorList?: () => Promise<{
+                fnArray?: Array<number | string>;
+                argsArray?: unknown[];
+              }>;
+            }
+          ).getOperatorList?.();
+          const fnArray = Array.isArray(operatorList?.fnArray)
+            ? operatorList.fnArray
+            : [];
+          const imageOpMatches = fnArray.filter((value) =>
+            String(value)
+              .toLowerCase()
+              .includes("image"),
+          ).length;
+          const textOpMatches = fnArray.filter((value) => {
+            const normalized = String(value).toLowerCase();
+            return (
+              normalized.includes("text") ||
+              normalized.includes("show") ||
+              normalized.includes("glyph")
+            );
+          }).length;
+          const hasRasterImageOps = imageOpMatches > 0;
+          const hasTextItems = textItems.length > 0;
+          const textQualityScore = hasTextItems ? scoreTextQuality(textItems) : 0;
+          const isImageHeavy = hasRasterImageOps && imageOpMatches >= textOpMatches;
+          if (isImageHeavy) {
+            imageHeavyPages.push(pageIndex);
+          }
+          if (hasRasterImageOps && !hasTextItems) {
+            meaningfulImageReviewPages.push(pageIndex);
+          } else if (
+            hasRasterImageOps &&
+            hasTextItems &&
+            textQualityScore < imageContrastThreshold
+          ) {
+            // Proxy heuristic for text-over-image readability risk.
+            lowContrastCandidatePages.push({
+              pageNumber: pageIndex,
+              score: textQualityScore,
+            });
+          }
+          if (
+            hasRasterImageOps &&
+            hasTextItems &&
+            textQualityScore < imageBlurThreshold
+          ) {
+            blurryImageTextPages.push({
+              pageNumber: pageIndex,
+              score: textQualityScore,
+            });
+          }
+
+          logScanPhase({
+            event: "pdf_scan_page_image_heuristics",
+            fileUrl,
+            pageNumber: pageIndex,
+            imageOpMatches,
+            textOpMatches,
+            hasRasterImageOps,
+            hasTextItems,
+            isImageHeavy,
+            textQualityScore,
+            durationMs: nowMs() - scanStartedAt,
+          });
+        }
+        if (
+          typeof (page as unknown as { getStructTree?: unknown }).getStructTree ===
+          "function"
+        ) {
+          const structTree = await (
+            page as unknown as {
+              getStructTree: () => Promise<unknown>;
+            }
+          )
+            .getStructTree()
+            .catch(() => null as unknown as null);
+          if (structTree) {
+            hasTags = true;
+          }
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message.slice(0, 500)
+            : String(error).slice(0, 500);
+        pageProcessingErrors.push({
+          pageNumber: pageIndex,
+          message,
+        });
+        logScanPhase({
+          event: "pdf_scan_page_processing_error",
+          fileUrl,
+          pageNumber: pageIndex,
+          errorMessage: message,
+          durationMs: nowMs() - scanStartedAt,
+        });
+      }
+    }
+
+    const fieldObjects = await (document as unknown as {
+      getFieldObjects?: () => Promise<Record<string, unknown[]>>;
+    })
+      .getFieldObjects?.()
+      .catch(() => undefined);
+    const genericOrUnlabeledFormFieldNames: string[] = [];
+    if (fieldObjects && typeof fieldObjects === "object") {
+      for (const [fieldName, rows] of Object.entries(fieldObjects)) {
+        const normalizedName = fieldName.trim();
+        const firstRow = Array.isArray(rows) ? (rows[0] as Record<string, unknown> | undefined) : undefined;
+        const altText =
+          typeof firstRow?.alternativeText === "string"
+            ? firstRow.alternativeText.trim()
+            : "";
+        const likelyGeneric = /^(text|field|textbox|input|check|radio)\d*$/i.test(
+          normalizedName.replace(/\s+/g, ""),
+        );
+        if (!altText || likelyGeneric) {
+          genericOrUnlabeledFormFieldNames.push(normalizedName || "unnamed_field");
+        }
+      }
+    }
+
+    logScanPhase({
+      event: "pdf_scan_facts_complete",
+      fileUrl,
+      pageCount: document.numPages,
+      textlessPageCount: textlessPages.length,
+      lowConfidencePageCount: lowConfidencePages.length,
+      likelyTablePageCount: likelyTablePages.length,
+      suspectReadingOrderPageCount: suspectReadingOrderPages.length,
+      imageHeavyPageCount: imageHeavyPages.length,
+      lowContrastCandidatePageCount: lowContrastCandidatePages.length,
+      blurryImageTextPageCount: blurryImageTextPages.length,
+      meaningfulImageReviewPageCount: meaningfulImageReviewPages.length,
+      genericFormFieldCount: genericOrUnlabeledFormFieldNames.length,
+      pageProcessingErrorCount: pageProcessingErrors.length,
+      hasTags,
+      durationMs: nowMs() - scanStartedAt,
+    });
+
+    return {
+      pageCount: document.numPages,
+      documentTitle:
+        documentTitle && documentTitle.length > 0 ? documentTitle : undefined,
+      documentLanguage:
+        normalizedLanguage && normalizedLanguage.length > 0
+          ? normalizedLanguage
+          : undefined,
+      hasTags,
+      textlessPages,
+      lowConfidencePages,
+      likelyTablePages,
+      suspectReadingOrderPages,
+      genericOrUnlabeledFormFieldNames,
+      imageHeavyPages,
+      lowContrastCandidatePages,
+      blurryImageTextPages,
+      meaningfulImageReviewPages,
+      pageProcessingErrors,
+    };
+  };
 
   const findings: NormalizedFinding[] = [];
-  for (let pageIndex = 1; pageIndex <= document.numPages; pageIndex += 1) {
-    const page = await document.getPage(pageIndex);
-    const textContent = await page.getTextContent();
-    const textItems = Array.isArray(textContent.items) ? textContent.items : [];
-    if (textItems.length === 0) {
+  const facts = await collectPdfFacts();
+  const capturedAt = nowMs();
+  const asPageCheck = (args: {
+    id: string;
+    label: string;
+    failCount: number;
+    totalPages: number;
+    detail: string;
+    failAsWarn?: boolean;
+  }): PdfPageCheck => {
+    const boundedTotalPages = Math.max(0, args.totalPages);
+    const boundedFailCount = Math.max(0, Math.min(args.failCount, boundedTotalPages));
+    const passCount = Math.max(0, boundedTotalPages - boundedFailCount);
+    const status: PdfCheckStatus =
+      boundedFailCount <= 0 ? "pass" : args.failAsWarn ? "warn" : "fail";
+    return {
+      id: args.id,
+      label: args.label,
+      status,
+      totalPages: boundedTotalPages,
+      passCount,
+      failCount: boundedFailCount,
+      detail: args.detail,
+    };
+  };
+  const checksSnapshot: PdfChecksSnapshot = {
+    version: 1,
+    documentChecks: [
+      {
+        id: "pdf.meta.title",
+        label: "Document title metadata",
+        status: facts.documentTitle ? "pass" : "fail",
+        detail: facts.documentTitle
+          ? "Title metadata found."
+          : "Title metadata is missing.",
+      },
+      {
+        id: "pdf.meta.language",
+        label: "Document language metadata",
+        status: facts.documentLanguage ? "pass" : "fail",
+        detail: facts.documentLanguage
+          ? `Language set to ${facts.documentLanguage}.`
+          : "Primary document language is missing.",
+      },
+      {
+        id: "pdf.tagging.struct_tree",
+        label: "Structural tag tree",
+        status: facts.hasTags ? "pass" : "fail",
+        detail: facts.hasTags
+          ? "Structure tags detected."
+          : "No structure tags detected.",
+      },
+      {
+        id: "pdf.page.processing_integrity",
+        label: "Page processing integrity",
+        status: facts.pageProcessingErrors.length > 0 ? "warn" : "pass",
+        detail:
+          facts.pageProcessingErrors.length > 0
+            ? `${facts.pageProcessingErrors.length} page(s) had partial parser errors.`
+            : "All pages were processed without parser exceptions.",
+      },
+    ],
+    pageChecks: [
+      asPageCheck({
+        id: "pdf.text_layer.coverage",
+        label: "Text layer detected per page",
+        failCount: facts.textlessPages.length,
+        totalPages: facts.pageCount,
+        detail:
+          facts.textlessPages.length > 0
+            ? `${facts.textlessPages.length} page(s) appear image-only.`
+            : "Text layer present on all pages.",
+      }),
+      asPageCheck({
+        id: "pdf.ocr.quality_confidence",
+        label: "OCR text quality confidence",
+        failCount: facts.lowConfidencePages.length,
+        totalPages: facts.pageCount,
+        failAsWarn: true,
+        detail:
+          facts.lowConfidencePages.length > 0
+            ? `${facts.lowConfidencePages.length} page(s) may need OCR quality review.`
+            : "No low-confidence OCR pages detected.",
+      }),
+      asPageCheck({
+        id: "pdf.reading_order.heuristic",
+        label: "Reading order heuristic",
+        failCount: facts.suspectReadingOrderPages.length,
+        totalPages: facts.pageCount,
+        failAsWarn: true,
+        detail:
+          facts.suspectReadingOrderPages.length > 0
+            ? `${facts.suspectReadingOrderPages.length} page(s) have possible reading-order ambiguity.`
+            : "No reading-order anomalies detected by heuristics.",
+      }),
+      asPageCheck({
+        id: "pdf.table.header_heuristic",
+        label: "Table header semantics heuristic",
+        failCount: facts.likelyTablePages.length,
+        totalPages: facts.pageCount,
+        failAsWarn: true,
+        detail:
+          facts.likelyTablePages.length > 0
+            ? `${facts.likelyTablePages.length} page(s) may need table header review.`
+            : "No table-header semantic risks detected by heuristics.",
+      }),
+    ],
+  };
+  if (imageRulesEnabled) {
+    checksSnapshot.pageChecks.push(
+      asPageCheck({
+        id: "pdf.image.low_contrast",
+        label: "Image text contrast heuristic",
+        failCount: facts.lowContrastCandidatePages.length,
+        totalPages: facts.pageCount,
+        failAsWarn: true,
+        detail:
+          facts.lowContrastCandidatePages.length > 0
+            ? `${facts.lowContrastCandidatePages.length} page(s) may have low-contrast text in image regions.`
+            : "No low-contrast image-text risks detected.",
+      }),
+      asPageCheck({
+        id: "pdf.image.blur",
+        label: "Image text sharpness heuristic",
+        failCount: facts.blurryImageTextPages.length,
+        totalPages: facts.pageCount,
+        failAsWarn: true,
+        detail:
+          facts.blurryImageTextPages.length > 0
+            ? `${facts.blurryImageTextPages.length} page(s) may have blurry image text.`
+            : "No blurry image-text risks detected.",
+      }),
+      asPageCheck({
+        id: "pdf.image.alt_review",
+        label: "Meaningful image alternative review",
+        failCount: facts.meaningfulImageReviewPages.length,
+        totalPages: facts.pageCount,
+        failAsWarn: true,
+        detail:
+          facts.meaningfulImageReviewPages.length > 0
+            ? `${facts.meaningfulImageReviewPages.length} page(s) may require equivalent text/alt review.`
+            : "No meaningful image alt-review risks detected.",
+      }),
+    );
+  }
+
+  if (!rulesEnabled) {
+    for (const pageIndex of facts.textlessPages) {
       findings.push({
         source: "pdf",
         severity: "serious",
-        ruleId: "pdf.text_layer.missing",
+        ruleId: "pdf.text_layer.missing_page",
         title: `Page ${pageIndex} appears image-only`,
         description: "No text layer detected for this PDF page.",
         pageNumber: pageIndex,
         manualReviewRequired: true,
         confidence: 0.9,
         status: "open",
-        lastStateChangeAt: nowMs(),
-        capturedAt: nowMs(),
+        lastStateChangeAt: capturedAt,
+        capturedAt,
         evidenceHash: computeEvidenceHash({
           source: "pdf",
-          ruleId: "pdf.text_layer.missing",
+          ruleId: "pdf.text_layer.missing_page",
           target: `page:${String(pageIndex)}`,
         }),
       });
     }
+    if (facts.pageCount > 0 && findings.length === 0) {
+      findings.push({
+        source: "pdf",
+        severity: "info",
+        ruleId: "pdf.scan.completed",
+        title: "PDF parsed successfully",
+        description:
+          "No immediate text-layer red flags were detected automatically.",
+        manualReviewRequired: true,
+        confidence: 0.4,
+        status: "open",
+        lastStateChangeAt: capturedAt,
+        capturedAt,
+        evidenceHash: computeEvidenceHash({
+          source: "pdf",
+          ruleId: "pdf.scan.completed",
+        }),
+      });
+    }
+    return findings;
   }
-  if (document.numPages > 0 && findings.length === 0) {
+
+  if (!facts.documentTitle) {
+    findings.push({
+      source: "pdf",
+      severity: "serious",
+      ruleId: "pdf.meta.title_missing",
+      title: "PDF document title is missing",
+      description:
+        "Set the PDF Title metadata so assistive technology announces a meaningful document name.",
+      manualReviewRequired: false,
+      confidence: 0.95,
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.meta.title_missing",
+      }),
+    });
+  }
+
+  if (!facts.documentLanguage) {
+    findings.push({
+      source: "pdf",
+      severity: "serious",
+      ruleId: "pdf.meta.language_missing",
+      title: "PDF document language is missing",
+      description:
+        "Set the primary language (for example en-US) in document metadata for proper screen-reader pronunciation.",
+      manualReviewRequired: false,
+      confidence: 0.95,
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.meta.language_missing",
+      }),
+    });
+  }
+
+  if (!facts.hasTags) {
+    findings.push({
+      source: "pdf",
+      severity: "critical",
+      ruleId: "pdf.tagging.missing",
+      title: "PDF does not appear to include a structural tag tree",
+      description:
+        "Tagged PDFs are required for reliable navigation and semantics in assistive technologies.",
+      manualReviewRequired: false,
+      confidence: 0.95,
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.tagging.missing",
+      }),
+    });
+  }
+
+  for (const pageNumber of facts.textlessPages) {
+    findings.push({
+      source: "pdf",
+      severity: "serious",
+      ruleId: "pdf.text_layer.missing_page",
+      title: `Page ${pageNumber} appears image-only`,
+      description:
+        "No text layer detected for this page. OCR and semantic tagging are likely required.",
+      pageNumber,
+      manualReviewRequired: true,
+      confidence: 0.9,
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.text_layer.missing_page",
+        target: `page:${String(pageNumber)}`,
+      }),
+    });
+  }
+
+  for (const page of facts.lowConfidencePages) {
+    findings.push({
+      source: "pdf",
+      severity: "moderate",
+      ruleId: "pdf.scan_quality.low_confidence_ocr",
+      title: `Page ${page.pageNumber} has low OCR text quality confidence`,
+      description:
+        "Detected text quality appears degraded and may contain OCR errors. Manual verification is recommended.",
+      pageNumber: page.pageNumber,
+      manualReviewRequired: true,
+      confidence: Math.max(0.3, Math.min(0.85, page.score / 100)),
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.scan_quality.low_confidence_ocr",
+        target: `page:${String(page.pageNumber)}`,
+      }),
+    });
+  }
+
+  if (imageRulesEnabled) {
+    for (const page of facts.lowContrastCandidatePages) {
+      findings.push({
+        source: "pdf",
+        severity: "moderate",
+        ruleId: "pdf.image.text_detected_low_contrast",
+        title: `Page ${page.pageNumber} may contain low-contrast text in image regions`,
+        description:
+          "Image/text composition appears to have low readability contrast. Verify with manual contrast checks.",
+        pageNumber: page.pageNumber,
+        manualReviewRequired: true,
+        confidence: Math.max(0.4, Math.min(0.8, page.score / 100)),
+        status: "open",
+        lastStateChangeAt: capturedAt,
+        capturedAt,
+        evidenceHash: computeEvidenceHash({
+          source: "pdf",
+          ruleId: "pdf.image.text_detected_low_contrast",
+          target: `page:${String(page.pageNumber)}`,
+        }),
+      });
+    }
+
+    for (const page of facts.blurryImageTextPages) {
+      findings.push({
+        source: "pdf",
+        severity: "moderate",
+        ruleId: "pdf.image.text_detected_blurry",
+        title: `Page ${page.pageNumber} may contain blurry text in image regions`,
+        description:
+          "Detected image/text quality suggests blur or poor scan sharpness. Consider rescanning or image enhancement.",
+        pageNumber: page.pageNumber,
+        manualReviewRequired: true,
+        confidence: Math.max(0.45, Math.min(0.85, page.score / 100)),
+        status: "open",
+        lastStateChangeAt: capturedAt,
+        capturedAt,
+        evidenceHash: computeEvidenceHash({
+          source: "pdf",
+          ruleId: "pdf.image.text_detected_blurry",
+          target: `page:${String(page.pageNumber)}`,
+        }),
+      });
+    }
+
+    for (const pageNumber of facts.meaningfulImageReviewPages) {
+      findings.push({
+        source: "pdf",
+        severity: "moderate",
+        ruleId: "pdf.image.meaningful_image_needs_alt_review",
+        title: `Page ${pageNumber} includes meaningful image content requiring review`,
+        description:
+          "Page appears image-driven with limited machine-readable text. Confirm equivalent text alternatives and accessibility intent.",
+        pageNumber,
+        manualReviewRequired: true,
+        confidence: 0.65,
+        status: "open",
+        lastStateChangeAt: capturedAt,
+        capturedAt,
+        evidenceHash: computeEvidenceHash({
+          source: "pdf",
+          ruleId: "pdf.image.meaningful_image_needs_alt_review",
+          target: `page:${String(pageNumber)}`,
+        }),
+      });
+    }
+  }
+
+  for (const pageNumber of facts.likelyTablePages) {
+    findings.push({
+      source: "pdf",
+      severity: "moderate",
+      ruleId: "pdf.table.header_missing",
+      title: `Page ${pageNumber} may contain a table with unclear header semantics`,
+      description:
+        "Possible table-like layout detected. Verify header row/column tagging and scope associations manually.",
+      pageNumber,
+      manualReviewRequired: true,
+      confidence: 0.55,
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.table.header_missing",
+        target: `page:${String(pageNumber)}`,
+      }),
+    });
+  }
+
+  for (const pageNumber of facts.suspectReadingOrderPages) {
+    findings.push({
+      source: "pdf",
+      severity: "moderate",
+      ruleId: "pdf.reading_order.suspect",
+      title: `Page ${pageNumber} has potentially ambiguous reading order`,
+      description:
+        "Text extraction order shows jumps consistent with multi-column or fragmented reading order. Manual review is recommended.",
+      pageNumber,
+      manualReviewRequired: true,
+      confidence: 0.55,
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.reading_order.suspect",
+        target: `page:${String(pageNumber)}`,
+      }),
+    });
+  }
+
+  if (facts.genericOrUnlabeledFormFieldNames.length > 0) {
+    const sample = facts.genericOrUnlabeledFormFieldNames.slice(0, 8);
+    findings.push({
+      source: "pdf",
+      severity: "serious",
+      ruleId: "pdf.form.field_label_missing",
+      title: "One or more PDF form fields appear unlabeled or generically named",
+      description: `Potentially inaccessible form fields detected: ${sample.join(", ")}${facts.genericOrUnlabeledFormFieldNames.length > sample.length ? "..." : ""}`,
+      manualReviewRequired: true,
+      confidence: 0.7,
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.form.field_label_missing",
+      }),
+    });
+  }
+
+  for (const pageError of facts.pageProcessingErrors) {
+    findings.push({
+      source: "pdf",
+      severity: "info",
+      ruleId: "pdf.page.processing_error",
+      title: `Page ${pageError.pageNumber} could not be fully analyzed`,
+      description: `Partial parser failure for this page: ${pageError.message}`,
+      pageNumber: pageError.pageNumber,
+      manualReviewRequired: true,
+      confidence: 0.3,
+      status: "open",
+      lastStateChangeAt: capturedAt,
+      capturedAt,
+      evidenceHash: computeEvidenceHash({
+        source: "pdf",
+        ruleId: "pdf.page.processing_error",
+        target: `page:${String(pageError.pageNumber)}`,
+      }),
+    });
+  }
+
+  if (facts.pageCount > 0 && findings.length === 0) {
     findings.push({
       source: "pdf",
       severity: "info",
       ruleId: "pdf.scan.completed",
       title: "PDF parsed successfully",
       description:
-        "No immediate text-layer red flags were detected automatically.",
+        "No automated red flags were detected in this pass. Manual validation is still recommended.",
       manualReviewRequired: true,
       confidence: 0.4,
       status: "open",
-      lastStateChangeAt: nowMs(),
-      capturedAt: nowMs(),
+      lastStateChangeAt: capturedAt,
+      capturedAt,
       evidenceHash: computeEvidenceHash({
         source: "pdf",
         ruleId: "pdf.scan.completed",
       }),
     });
   }
+  logScanPhase({
+    event: "pdf_scan_complete",
+    fileUrl,
+    findingCount: findings.length,
+    durationMs: nowMs() - scanStartedAt,
+  });
   return findings;
 };
 
@@ -1251,6 +2248,11 @@ export const processScanRun = internalAction({
   args: { scanRunId: v.id("scanRuns") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const runStartedAt = nowMs();
+    logScanPhase({
+      event: "scan_run_process_start",
+      scanRunId: args.scanRunId,
+    });
     const isCanceledBeforeStart = await ctx.runQuery(
       internal.scans.isScanRunCanceled,
       {
@@ -1258,6 +2260,10 @@ export const processScanRun = internalAction({
       },
     );
     if (isCanceledBeforeStart) {
+      logScanPhase({
+        event: "scan_run_process_canceled_before_start",
+        scanRunId: args.scanRunId,
+      });
       return null;
     }
     const processing = await ctx.runQuery(
@@ -1267,9 +2273,20 @@ export const processScanRun = internalAction({
       },
     );
     if (!processing) {
+      logScanPhase({
+        event: "scan_run_process_missing_processing_snapshot",
+        scanRunId: args.scanRunId,
+      });
       return null;
     }
     const { scanRun, asset } = processing;
+    logScanPhase({
+      event: "scan_run_process_snapshot_loaded",
+      scanRunId: scanRun._id,
+      assetId: asset._id,
+      assetKind: asset.kind,
+      durationMs: nowMs() - runStartedAt,
+    });
     const now = nowMs();
     await ctx.runMutation(internal.scans.markScanRunning, {
       scanRunId: scanRun._id,
@@ -1281,12 +2298,31 @@ export const processScanRun = internalAction({
       if (asset.kind === "url" && asset.normalizedUrl) {
         findings.push(...(await scanWebsite(ctx, asset.normalizedUrl)));
       } else if (asset.kind === "file_pdf" && asset.storageId) {
+        logScanPhase({
+          event: "scan_run_pdf_storage_url_request_start",
+          scanRunId: scanRun._id,
+          assetId: asset._id,
+          storageId: asset.storageId,
+          durationMs: nowMs() - runStartedAt,
+        });
         const fileUrl = await ctx.runQuery(internal.scans.getAssetStorageUrl, {
           assetId: asset._id,
         });
         if (!fileUrl) {
+          logScanPhase({
+            event: "scan_run_pdf_storage_url_missing",
+            scanRunId: scanRun._id,
+            assetId: asset._id,
+            durationMs: nowMs() - runStartedAt,
+          });
           throw new Error("Unable to access stored PDF.");
         }
+        logScanPhase({
+          event: "scan_run_pdf_storage_url_ready",
+          scanRunId: scanRun._id,
+          assetId: asset._id,
+          durationMs: nowMs() - runStartedAt,
+        });
         findings.push(...(await scanPdfFromFileUrl(fileUrl)));
       } else {
         findings.push({
@@ -1324,6 +2360,11 @@ export const processScanRun = internalAction({
       });
 
       const summary = computeSummary(findings);
+      const compliance = computeCompliance(summary);
+      const checks =
+        asset.kind === "file_pdf"
+          ? buildPdfChecksSnapshotFromFindings(findings)
+          : undefined;
       const markdown = [
         `# ADA Scout Report`,
         ``,
@@ -1339,6 +2380,14 @@ export const processScanRun = internalAction({
         `- Minor: ${summary.minor}`,
         `- Info: ${summary.info}`,
         `- Manual review required: ${summary.manualReviewRequired}`,
+        ``,
+        `## Compliance`,
+        `- Score: ${compliance.score}/100 (${compliance.band})`,
+        `- Weighted penalty: ${compliance.weightedPenalty}`,
+        ``,
+        `## Disclaimer`,
+        `- This is an automated best-effort pre-audit and not a legal certification.`,
+        `- Manual accessibility verification is recommended for complex or low-quality PDFs.`,
       ].join("\n");
 
       await ctx.runMutation(internal.reports.upsertReportForScanRun, {
@@ -1352,17 +2401,40 @@ export const processScanRun = internalAction({
         json: JSON.stringify(
           {
             summary,
+            compliance,
+            checks,
             findings,
           },
           null,
           2,
         ),
       });
+      logScanPhase({
+        event: "scan_run_process_complete",
+        scanRunId: scanRun._id,
+        assetId: asset._id,
+        findingCount: findings.length,
+        durationMs: nowMs() - runStartedAt,
+      });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack =
+        error instanceof Error && typeof error.stack === "string"
+          ? error.stack.slice(0, 4000)
+          : undefined;
+      logScanPhase({
+        event: "scan_run_process_failed",
+        scanRunId: scanRun._id,
+        assetId: asset._id,
+        assetKind: asset.kind,
+        durationMs: nowMs() - runStartedAt,
+        errorMessage,
+        errorStack,
+      });
       await ctx.runMutation(internal.scans.failScanRun, {
         scanRunId: scanRun._id,
         failedAt: nowMs(),
-        errorMessage: error instanceof Error ? error.message : String(error),
+        errorMessage,
       });
     }
     return null;
@@ -1908,6 +2980,54 @@ export const e2eWebsiteScanSmoke = internalAction({
       reachablePagesInSamples,
       failedPagesInSamples,
       pages,
+    };
+  },
+});
+
+export const e2ePdfScanSmoke = internalAction({
+  args: {
+    fileUrl: v.string(),
+  },
+  returns: v.object({
+    fileUrl: v.string(),
+    findingCount: v.number(),
+    summary: v.object({
+      total: v.number(),
+      critical: v.number(),
+      serious: v.number(),
+      moderate: v.number(),
+      minor: v.number(),
+      info: v.number(),
+      manualReviewRequired: v.number(),
+    }),
+    compliance: v.object({
+      score: v.number(),
+      band: v.union(v.literal("pass"), v.literal("warn"), v.literal("fail")),
+      weightedPenalty: v.number(),
+    }),
+    rules: v.array(
+      v.object({
+        ruleId: v.string(),
+        count: v.number(),
+      }),
+    ),
+  }),
+  handler: async (_ctx, args) => {
+    const findings = await scanPdfFromFileUrl(args.fileUrl);
+    const summary = computeSummary(findings);
+    const compliance = computeCompliance(summary);
+    const byRule = new Map<string, number>();
+    for (const finding of findings) {
+      byRule.set(finding.ruleId, (byRule.get(finding.ruleId) ?? 0) + 1);
+    }
+    return {
+      fileUrl: args.fileUrl,
+      findingCount: findings.length,
+      summary,
+      compliance,
+      rules: Array.from(byRule.entries())
+        .map(([ruleId, count]) => ({ ruleId, count }))
+        .sort((a, b) => b.count - a.count),
     };
   },
 });

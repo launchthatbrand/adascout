@@ -62,6 +62,11 @@ interface ReportPreview {
     minor: number;
     manualReviewRequired: number;
   };
+  compliance: {
+    score: number;
+    band: "pass" | "warn" | "fail";
+    weightedPenalty: number;
+  };
   findings: {
     findingId: string;
     title: string;
@@ -1141,6 +1146,22 @@ export default function ReportDetailsPage() {
               }
             />
           </div>
+          {preview?.compliance ? (
+            <div className="mt-3 flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Compliance score:</span>
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${
+                  preview.compliance.band === "pass"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : preview.compliance.band === "warn"
+                      ? "bg-amber-100 text-amber-800"
+                      : "bg-red-100 text-red-800"
+                }`}
+              >
+                {preview.compliance.score}/100 ({preview.compliance.band})
+              </span>
+            </div>
+          ) : null}
           {preview?.delta.includeNewResolvedRegressed ? (
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               <Metric label="New" value={preview.delta.newCount} />
@@ -1150,6 +1171,9 @@ export default function ReportDetailsPage() {
           ) : null}
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
             Template export uses your template columns and row mode. Branded export includes summary metadata and findings.
+          </p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Automated checks are best-effort only; manual accessibility verification is recommended for complex documents.
           </p>
           {statusMessage ? (
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400" role="status" aria-live="polite">

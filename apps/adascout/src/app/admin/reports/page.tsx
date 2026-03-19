@@ -34,6 +34,8 @@ interface ReportRow extends Record<string, unknown> {
   generatedAt: number;
   updatedAt: number;
   profile: string;
+  complianceScore?: number;
+  complianceBand?: "pass" | "warn" | "fail";
 }
 
 interface ReportListRow {
@@ -49,6 +51,11 @@ interface ReportListRow {
   generatedAt: number;
   updatedAt: number;
   profile: string;
+  compliance?: {
+    score: number;
+    band: "pass" | "warn" | "fail";
+    weightedPenalty: number;
+  };
 }
 
 interface AssetOption {
@@ -84,6 +91,8 @@ export default function ReportsPage() {
         generatedAt: report.generatedAt,
         updatedAt: report.updatedAt,
         profile: report.profile,
+        complianceScore: report.compliance?.score,
+        complianceBand: report.compliance?.band,
       })),
     [reports],
   );
@@ -118,6 +127,30 @@ export default function ReportsPage() {
         cell: (row: ReportRow) => <Badge variant="outline">{row.layout}</Badge>,
       },
       { id: "profile", header: "Profile", accessorKey: "profile" },
+      {
+        id: "compliance",
+        header: "Compliance",
+        accessorKey: "complianceScore",
+        cell: (row: ReportRow) => {
+          if (typeof row.complianceScore !== "number") {
+            return <span className="text-muted-foreground text-xs">—</span>;
+          }
+          const band = row.complianceBand ?? "warn";
+          const bandClass =
+            band === "pass"
+              ? "bg-emerald-100 text-emerald-800"
+              : band === "warn"
+                ? "bg-amber-100 text-amber-800"
+                : "bg-red-100 text-red-800";
+          return (
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${bandClass}`}
+            >
+              {row.complianceScore}/100 ({band})
+            </span>
+          );
+        },
+      },
       { id: "totalFindings", header: "Findings", accessorKey: "totalFindings" },
       { id: "criticalCount", header: "Critical", accessorKey: "criticalCount" },
       {

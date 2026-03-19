@@ -28,6 +28,11 @@ const summaryValidator = v.object({
   info: v.number(),
   manualReviewRequired: v.number(),
 });
+const complianceValidator = v.object({
+  score: v.number(),
+  band: v.union(v.literal("pass"), v.literal("warn"), v.literal("fail")),
+  weightedPenalty: v.number(),
+});
 
 const reportValidator = v.object({
   _id: v.id("reports"),
@@ -84,6 +89,12 @@ interface SummaryFinding {
   manualReviewRequired?: boolean;
 }
 
+interface ComplianceSnapshot {
+  score: number;
+  band: "pass" | "warn" | "fail";
+  weightedPenalty: number;
+}
+
 const severityRank = (severity: SummaryFinding["severity"]) => {
   if (severity === "critical") return 5;
   if (severity === "serious") return 4;
@@ -107,6 +118,78 @@ const computeSummary = (findings: SummaryFinding[]) => {
     if (finding.manualReviewRequired) summary.manualReviewRequired += 1;
   }
   return summary;
+};
+
+const computeComplianceFromSummary = (
+  summary: ReturnType<typeof computeSummary>,
+): ComplianceSnapshot => {
+  const weightedPenalty =
+    summary.critical * 20 +
+    summary.serious * 12 +
+    summary.moderate * 6 +
+    summary.minor * 2 +
+    summary.info +
+    summary.manualReviewRequired * 2;
+  const score = Math.max(0, Math.min(100, Math.round(100 - weightedPenalty)));
+  const band: "pass" | "warn" | "fail" =
+    score >= 90 ? "pass" : score >= 70 ? "warn" : "fail";
+  return { score, band, weightedPenalty };
+};
+
+const parseComplianceFromReportJson = (json: string): ComplianceSnapshot | null => {
+  try {
+    const parsed = JSON.parse(json) as {
+      compliance?: { score?: unknown; band?: unknown; weightedPenalty?: unknown };
+      summary?: {
+        total?: number;
+        critical?: number;
+        serious?: number;
+        moderate?: number;
+        minor?: number;
+        info?: number;
+        manualReviewRequired?: number;
+      };
+    };
+    const compliance = parsed.compliance;
+    if (
+      compliance &&
+      typeof compliance.score === "number" &&
+      (compliance.band === "pass" ||
+        compliance.band === "warn" ||
+        compliance.band === "fail") &&
+      typeof compliance.weightedPenalty === "number"
+    ) {
+      return {
+        score: compliance.score,
+        band: compliance.band,
+        weightedPenalty: compliance.weightedPenalty,
+      };
+    }
+    const summary = parsed.summary;
+    if (
+      summary &&
+      typeof summary.total === "number" &&
+      typeof summary.critical === "number" &&
+      typeof summary.serious === "number" &&
+      typeof summary.moderate === "number" &&
+      typeof summary.minor === "number" &&
+      typeof summary.info === "number" &&
+      typeof summary.manualReviewRequired === "number"
+    ) {
+      return computeComplianceFromSummary({
+        total: summary.total,
+        critical: summary.critical,
+        serious: summary.serious,
+        moderate: summary.moderate,
+        minor: summary.minor,
+        info: summary.info,
+        manualReviewRequired: summary.manualReviewRequired,
+      });
+    }
+  } catch {
+    // Ignore malformed JSON.
+  }
+  return null;
 };
 
 export const upsertReportForScanRun = internalMutation({
@@ -432,6 +515,7 @@ export const listMyReports = query({
       minorCount: v.number(),
       infoCount: v.number(),
       profile: profileValidator,
+      compliance: v.optional(complianceValidator),
       companyName: v.optional(v.string()),
       baselineScanRunId: v.optional(v.id("scanRuns")),
       includeNewResolvedRegressed: v.optional(v.boolean()),
@@ -476,6 +560,7 @@ export const listMyReports = query({
           minorCount: row.minorCount,
           infoCount: row.infoCount,
           profile: row.profile,
+          compliance: parseComplianceFromReportJson(row.json) ?? undefined,
           companyName: row.companyName,
           baselineScanRunId: row.baselineScanRunId,
           includeNewResolvedRegressed: row.includeNewResolvedRegressed,
@@ -540,6 +625,7 @@ export const getMyReportPreviewData = query({
       regressedCount: v.number(),
     }),
     summary: summaryValidator,
+    compliance: complianceValidator,
     findings: v.array(
       v.object({
         findingId: v.id("findings"),
@@ -679,6 +765,7 @@ export const getMyReportPreviewData = query({
         manualReviewRequired: row.manualReviewRequired,
       })),
     );
+    const compliance = computeComplianceFromSummary(summary);
 
     const groupedByPageMap = new Map<
       string,
@@ -780,6 +867,7 @@ export const getMyReportPreviewData = query({
         regressedCount,
       },
       summary,
+      compliance,
       findings,
       groupedByPage,
     };

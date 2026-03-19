@@ -33,6 +33,86 @@ type PageRow = Record<string, unknown> & {
   terminalErrorCategory?: string;
 };
 
+type PdfCheckStatus = "pass" | "warn" | "fail";
+type PdfDocumentCheck = {
+  id: string;
+  label: string;
+  status: PdfCheckStatus;
+  detail: string;
+};
+type PdfPageCheck = {
+  id: string;
+  label: string;
+  status: PdfCheckStatus;
+  totalPages: number;
+  passCount: number;
+  failCount: number;
+  detail: string;
+};
+type PdfChecksSnapshot = {
+  version: number;
+  documentChecks: PdfDocumentCheck[];
+  pageChecks: PdfPageCheck[];
+};
+
+const getCheckBadgeVariant = (status: PdfCheckStatus) => {
+  if (status === "fail") return "destructive" as const;
+  if (status === "warn") return "secondary" as const;
+  return "default" as const;
+};
+
+const parsePdfChecksSnapshot = (rawJson?: string): PdfChecksSnapshot | null => {
+  if (!rawJson) return null;
+  try {
+    const parsed = JSON.parse(rawJson) as {
+      checks?: {
+        version?: unknown;
+        documentChecks?: unknown;
+        pageChecks?: unknown;
+      };
+    };
+    const checks = parsed.checks;
+    if (!checks) return null;
+    if (
+      typeof checks.version !== "number" ||
+      !Array.isArray(checks.documentChecks) ||
+      !Array.isArray(checks.pageChecks)
+    ) {
+      return null;
+    }
+    const isStatus = (value: unknown): value is PdfCheckStatus =>
+      value === "pass" || value === "warn" || value === "fail";
+    const documentChecks = checks.documentChecks.filter(
+      (row): row is PdfDocumentCheck =>
+        typeof row === "object" &&
+        row !== null &&
+        typeof (row as { id?: unknown }).id === "string" &&
+        typeof (row as { label?: unknown }).label === "string" &&
+        isStatus((row as { status?: unknown }).status) &&
+        typeof (row as { detail?: unknown }).detail === "string",
+    );
+    const pageChecks = checks.pageChecks.filter(
+      (row): row is PdfPageCheck =>
+        typeof row === "object" &&
+        row !== null &&
+        typeof (row as { id?: unknown }).id === "string" &&
+        typeof (row as { label?: unknown }).label === "string" &&
+        isStatus((row as { status?: unknown }).status) &&
+        typeof (row as { totalPages?: unknown }).totalPages === "number" &&
+        typeof (row as { passCount?: unknown }).passCount === "number" &&
+        typeof (row as { failCount?: unknown }).failCount === "number" &&
+        typeof (row as { detail?: unknown }).detail === "string",
+    );
+    return {
+      version: checks.version,
+      documentChecks,
+      pageChecks,
+    };
+  } catch {
+    return null;
+  }
+};
+
 export default function ScanDetailsPage() {
   const router = useRouter();
   const params = useParams();
@@ -58,6 +138,10 @@ export default function ScanDetailsPage() {
     scanRunId ? { scanRunId, limit: 2000 } : "skip",
   );
   const rerunScan = useMutation(api.scans.rerunScan);
+  const asset = useQuery(
+    api.assets.getMyAsset,
+    scanRun?.assetId ? { assetId: scanRun.assetId } : "skip",
+  );
   const updateFindingStatus = useMutation(api.findings.updateMyFindingStatus);
   const assignFinding = useMutation(api.findings.assignMyFinding);
   const actor = useQuery(api.findings.getMyFindingActor, {});
@@ -197,6 +281,151 @@ export default function ScanDetailsPage() {
     }
     return groups;
   }, [findings]);
+
+  const pdfMetrics = useMemo(() => {
+    const rows = findings ?? [];
+    const pdfFindings = rows.filter((row) => row.source === "pdf");
+    const pagesWithoutTextLayer = pdfFindings.filter(
+      (row) => row.ruleId === "pdf.text_layer.missing_page",
+    ).length;
+    const lowConfidencePages = pdfFindings.filter(
+      (row) => row.ruleId === "pdf.scan_quality.low_confidence_ocr",
+    ).length;
+    const hasTagMissing = pdfFindings.some(
+      (row) => row.ruleId === "pdf.tagging.missing",
+    );
+    const manualReview = pdfFindings.filter(
+      (row) => row.manualReviewRequired,
+    ).length;
+    const imageLowContrastPages = pdfFindings.filter(
+      (row) => row.ruleId === "pdf.image.text_detected_low_contrast",
+    ).length;
+    const imageBlurryPages = pdfFindings.filter(
+      (row) => row.ruleId === "pdf.image.text_detected_blurry",
+    ).length;
+    const imageAltReviewPages = pdfFindings.filter(
+      (row) => row.ruleId === "pdf.image.meaningful_image_needs_alt_review",
+    ).length;
+    return {
+      pagesWithoutTextLayer,
+      lowConfidencePages,
+      taggedStatus: hasTagMissing ? "missing tags" : "no tag gap detected",
+      manualReview,
+      imageLowContrastPages,
+      imageBlurryPages,
+      imageAltReviewPages,
+    };
+  }, [findings]);
+  const pdfChecks = useMemo<PdfChecksSnapshot | null>(() => {
+    if (asset?.kind !== "file_pdf") return null;
+    const parsed = parsePdfChecksSnapshot(report?.json);
+    if (parsed) return parsed;
+
+    const rows = findings ?? [];
+    const pdfRows = rows.filter((row) => row.source === "pdf");
+    const totalPages = Math.max(
+      0,
+      Number(
+        scanRun?.totalPages ??
+          Math.max(
+            0,
+            ...pdfRows
+              .map((row) => Number(row.pageNumber ?? 0))
+              .filter((value) => Number.isFinite(value)),
+          ),
+      ),
+    );
+    const countFailPages = (ruleId: string): number => {
+      const pageSet = new Set<number>();
+      let rowCount = 0;
+      for (const row of pdfRows) {
+        if (row.ruleId !== ruleId) continue;
+        rowCount += 1;
+        const pageNumber = Number(row.pageNumber ?? 0);
+        if (Number.isFinite(pageNumber) && pageNumber > 0) {
+          pageSet.add(pageNumber);
+        }
+      }
+      return pageSet.size > 0 ? pageSet.size : rowCount;
+    };
+    const asPageCheck = (
+      id: string,
+      label: string,
+      failCount: number,
+      detail: string,
+      failAsWarn = true,
+    ): PdfPageCheck => {
+      const boundedFail = Math.max(0, Math.min(failCount, totalPages));
+      const passCount = Math.max(0, totalPages - boundedFail);
+      return {
+        id,
+        label,
+        status: boundedFail === 0 ? "pass" : failAsWarn ? "warn" : "fail",
+        totalPages,
+        passCount,
+        failCount: boundedFail,
+        detail,
+      };
+    };
+    const hasRule = (ruleId: string) => pdfRows.some((row) => row.ruleId === ruleId);
+
+    return {
+      version: 1,
+      documentChecks: [
+        {
+          id: "pdf.meta.title",
+          label: "Document title metadata",
+          status: hasRule("pdf.meta.title_missing") ? "fail" : "pass",
+          detail: hasRule("pdf.meta.title_missing")
+            ? "Title metadata appears missing."
+            : "No title metadata issue detected.",
+        },
+        {
+          id: "pdf.meta.language",
+          label: "Document language metadata",
+          status: hasRule("pdf.meta.language_missing") ? "fail" : "pass",
+          detail: hasRule("pdf.meta.language_missing")
+            ? "Primary language appears missing."
+            : "No language metadata issue detected.",
+        },
+        {
+          id: "pdf.tagging.struct_tree",
+          label: "Structural tag tree",
+          status: hasRule("pdf.tagging.missing") ? "fail" : "pass",
+          detail: hasRule("pdf.tagging.missing")
+            ? "Tag tree appears missing."
+            : "No tag-tree issue detected.",
+        },
+      ],
+      pageChecks: [
+        asPageCheck(
+          "pdf.text_layer.coverage",
+          "Text layer detected per page",
+          countFailPages("pdf.text_layer.missing_page"),
+          "Derived from recorded text-layer findings.",
+          false,
+        ),
+        asPageCheck(
+          "pdf.ocr.quality_confidence",
+          "OCR text quality confidence",
+          countFailPages("pdf.scan_quality.low_confidence_ocr"),
+          "Derived from low-confidence OCR findings.",
+        ),
+        asPageCheck(
+          "pdf.reading_order.heuristic",
+          "Reading order heuristic",
+          countFailPages("pdf.reading_order.suspect"),
+          "Derived from reading-order heuristic findings.",
+        ),
+        asPageCheck(
+          "pdf.table.header_heuristic",
+          "Table header semantics heuristic",
+          countFailPages("pdf.table.header_missing"),
+          "Derived from table semantics heuristic findings.",
+        ),
+      ],
+    };
+  }, [asset?.kind, report?.json, findings, scanRun?.totalPages]);
 
   const pageRows = useMemo<PageRow[]>(
     () =>
@@ -466,6 +695,113 @@ export default function ScanDetailsPage() {
           </div>
         ))}
       </div>
+      {asset?.kind === "file_pdf" ? (
+        <div className="grid gap-3 md:grid-cols-7">
+          <div className="border-border/60 bg-background rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs uppercase">Tagging</p>
+            <p className="mt-1 text-sm font-semibold">{pdfMetrics.taggedStatus}</p>
+          </div>
+          <div className="border-border/60 bg-background rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs uppercase">
+              Pages Without Text
+            </p>
+            <p className="mt-1 text-2xl font-semibold">
+              {pdfMetrics.pagesWithoutTextLayer}
+            </p>
+          </div>
+          <div className="border-border/60 bg-background rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs uppercase">
+              Low OCR Confidence
+            </p>
+            <p className="mt-1 text-2xl font-semibold">
+              {pdfMetrics.lowConfidencePages}
+            </p>
+          </div>
+          <div className="border-border/60 bg-background rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs uppercase">Manual Review</p>
+            <p className="mt-1 text-2xl font-semibold">{pdfMetrics.manualReview}</p>
+          </div>
+          <div className="border-border/60 bg-background rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs uppercase">
+              Image Low Contrast
+            </p>
+            <p className="mt-1 text-2xl font-semibold">
+              {pdfMetrics.imageLowContrastPages}
+            </p>
+          </div>
+          <div className="border-border/60 bg-background rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs uppercase">Image Blurry</p>
+            <p className="mt-1 text-2xl font-semibold">
+              {pdfMetrics.imageBlurryPages}
+            </p>
+          </div>
+          <div className="border-border/60 bg-background rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs uppercase">
+              Image Alt Review
+            </p>
+            <p className="mt-1 text-2xl font-semibold">
+              {pdfMetrics.imageAltReviewPages}
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {asset?.kind === "file_pdf" && pdfChecks ? (
+        <div className="border-border/60 bg-background space-y-3 rounded-xl border p-4">
+          <div>
+            <p className="text-sm font-semibold">PDF checks (pass + fail)</p>
+            <p className="text-muted-foreground text-xs">
+              Document-level checks run once per PDF. Page-level checks show
+              coverage across all pages.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {pdfChecks.documentChecks.map((check) => (
+              <div
+                key={check.id}
+                className="border-border/60 rounded-lg border p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">{check.label}</p>
+                  <Badge variant={getCheckBadgeVariant(check.status)}>
+                    {check.status.toUpperCase()}
+                  </Badge>
+                </div>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  {check.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {pdfChecks.pageChecks.map((check) => (
+              <div
+                key={check.id}
+                className="border-border/60 rounded-lg border p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">{check.label}</p>
+                  <Badge variant={getCheckBadgeVariant(check.status)}>
+                    {check.status.toUpperCase()}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm">
+                  {check.passCount}/{check.totalPages} pages pass
+                  {check.failCount > 0 ? ` (${check.failCount} flagged)` : ""}
+                </p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {check.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {asset?.kind === "file_pdf" ? (
+        <p className="text-muted-foreground text-xs">
+          PDF scans are automated best-effort checks; manual validation is still
+          recommended for legal compliance.
+        </p>
+      ) : null}
 
       <div className="border-border/60 bg-background rounded-xl border p-4">
         <EntityList<PageRow>
