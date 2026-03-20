@@ -1,22 +1,16 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
 import {
   ChevronRight,
   MailIcon,
   MoveLeftIcon,
   PlusCircleIcon,
 } from "lucide-react";
-
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../collapsible";
-import { cn } from "../lib/utils";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -29,6 +23,12 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from "../sidebar";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+
+import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
+import { cn } from "../lib/utils";
 
 interface SubItem {
   title: string;
@@ -108,7 +108,7 @@ const TickerText = ({
 
   const animateClass =
     enabled && overflow > 0
-      ? "group-hover:[animation:ticker-reveal_var(--ticker-duration)_linear_forwards]"
+      ? "group-hover/ticker:[animation:ticker-reveal_var(--ticker-duration)_linear_forwards]"
       : "";
 
   return (
@@ -122,9 +122,9 @@ const TickerText = ({
         style={
           enabled && overflow > 0
             ? ({
-                ["--ticker-shift" as any]: `-${overflow}px`,
-                ["--ticker-duration" as any]: `${durationSeconds}s`,
-              } as React.CSSProperties)
+              ["--ticker-shift" as any]: `-${overflow}px`,
+              ["--ticker-duration" as any]: `${durationSeconds}s`,
+            } as React.CSSProperties)
             : undefined
         }
       >
@@ -197,9 +197,21 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
   const visibleSections =
     focusedSectionLabel != null
       ? normalizedSections.filter(
-          (section) => section.label === focusedSectionLabel,
-        )
+        (section) => section.label === focusedSectionLabel,
+      )
       : normalizedSections;
+
+  const navItemCount = useMemo(() => {
+    return visibleSections.reduce((count, section) => {
+      return (
+        count +
+        section.items.reduce(
+          (inner, item) => inner + 1 + (item.items?.length ?? 0),
+          0,
+        )
+      );
+    }, 0);
+  }, [visibleSections]);
 
   if (normalizedSections.length === 0) {
     return null;
@@ -212,19 +224,67 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
     const scrollContainer =
       container.closest<HTMLElement>("[data-sidebar='content']") ?? container;
 
-    const target =
-      scrollContainer.querySelector<HTMLElement>("[data-nav-exact='true']") ??
-      scrollContainer.querySelector<HTMLElement>("[data-nav-active='true']");
+    const resolveTarget = () => {
+      return (
+        scrollContainer.querySelector<HTMLElement>(
+          "[data-nav-subitem='true'][data-nav-exact='true']",
+        ) ??
+        scrollContainer.querySelector<HTMLElement>(
+          "[data-nav-subitem='true'][data-nav-active='true']",
+        ) ??
+        scrollContainer.querySelector<HTMLElement>("[data-nav-exact='true']") ??
+        scrollContainer.querySelector<HTMLElement>("[data-nav-active='true']")
+      );
+    };
 
-    if (!target) return;
+    const scrollTargetIntoSubmenu = (target: HTMLElement) => {
+      const submenuScrollContainer = target.closest<HTMLElement>(
+        "[data-nav-sub-scroll='true']",
+      );
+      if (!submenuScrollContainer) return;
+      const containerRect = submenuScrollContainer.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const currentTop = submenuScrollContainer.scrollTop;
+      const targetTopRelative =
+        targetRect.top - containerRect.top + currentTop;
+      const centeredTop =
+        targetTopRelative -
+        submenuScrollContainer.clientHeight / 2 +
+        targetRect.height / 2;
+      submenuScrollContainer.scrollTo({
+        top: Math.max(0, centeredTop),
+        behavior: "smooth",
+      });
+    };
 
-    requestAnimationFrame(() => {
+    const scrollTargetIntoView = () => {
+      const target = resolveTarget();
+      if (!target) return;
       target.scrollIntoView({
         behavior: "smooth",
         block: "center",
       });
-    });
-  }, [pathname]);
+      scrollTargetIntoSubmenu(target);
+    };
+
+    let attempts = 0;
+    let timeoutId: number | null = null;
+
+    const attemptScroll = () => {
+      attempts += 1;
+      scrollTargetIntoView();
+      if (attempts >= 8) return;
+      timeoutId = window.setTimeout(attemptScroll, 100);
+    };
+
+    requestAnimationFrame(attemptScroll);
+
+    return () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [pathname, navItemCount]);
 
   useEffect(() => {
     const lastPathname = lastPathnameRef.current;
@@ -300,7 +360,7 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
                     <Link
                       href={item.url}
                       onClick={handleNavigate}
-                      className="group flex flex-1 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0"
+                      className="group/ticker flex flex-1 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0"
                     >
                       {item.icon && <item.icon />}
                       <TickerText enabled={useTickerLabels} text={item.title} className="flex-1" />
@@ -309,7 +369,10 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <SidebarMenuSub>
+                  <SidebarMenuSub
+                    className="max-h-[400px] overflow-y-auto pr-1"
+                    data-nav-sub-scroll="true"
+                  >
                     {item.items.map((subItem) => {
                       const subItemActive = isActive(subItem.url);
 
@@ -319,15 +382,16 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
                             asChild
                             className={cn(
                               subItemActive &&
-                                "bg-accent/50 text-accent-foreground font-medium",
+                              "bg-accent/50 text-accent-foreground font-medium",
                             )}
+                            data-nav-subitem="true"
                             data-nav-active={subItemActive ? "true" : undefined}
                             data-nav-exact={subItemActive ? "true" : undefined}
                           >
                             <Link
                               href={subItem.url}
                               onClick={handleNavigate}
-                              className="group flex min-w-0 items-center"
+                              className="group/ticker flex min-w-0 items-center"
                             >
                               <TickerText enabled={useTickerLabels} text={subItem.title} className="flex-1" />
                             </Link>
@@ -351,7 +415,11 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
               data-nav-active={itemActive ? "true" : undefined}
               data-nav-exact={itemActive ? "true" : undefined}
             >
-              <Link href={item.url} onClick={handleNavigate} className="group flex min-w-0 items-center gap-2">
+              <Link
+                href={item.url}
+                onClick={handleNavigate}
+                className="group/ticker flex min-w-0 items-center gap-2"
+              >
                 {item.icon && <item.icon />}
                 <TickerText enabled={useTickerLabels} text={item.title} className="flex-1" />
               </Link>
