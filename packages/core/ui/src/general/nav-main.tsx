@@ -33,6 +33,7 @@ import { cn } from "../lib/utils";
 interface SubItem {
   title: string;
   url: string;
+  hardNav?: boolean;
   items?: {
     title: string;
     url: string;
@@ -44,6 +45,7 @@ export interface NavItem {
   url: string;
   icon?: LucideIcon;
   isActive?: boolean;
+  hardNav?: boolean;
   items?: SubItem[];
 }
 
@@ -357,14 +359,33 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
                     data-nav-active={isCurrentActive ? "true" : undefined}
                     data-nav-exact={itemActive ? "true" : undefined}
                   >
-                    <Link
-                      href={item.url}
-                      onClick={handleNavigate}
-                      className="group/ticker flex flex-1 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0"
-                    >
-                      {item.icon && <item.icon />}
-                      <TickerText enabled={useTickerLabels} text={item.title} className="flex-1" />
-                    </Link>
+                    {item.hardNav ? (
+                      <a
+                        href={item.url}
+                        onClick={handleNavigate}
+                        className="group/ticker flex flex-1 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0"
+                      >
+                        {item.icon && <item.icon />}
+                        <TickerText
+                          enabled={useTickerLabels}
+                          text={item.title}
+                          className="flex-1"
+                        />
+                      </a>
+                    ) : (
+                      <Link
+                        href={item.url}
+                        onClick={handleNavigate}
+                        className="group/ticker flex flex-1 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0"
+                      >
+                        {item.icon && <item.icon />}
+                        <TickerText
+                          enabled={useTickerLabels}
+                          text={item.title}
+                          className="flex-1"
+                        />
+                      </Link>
+                    )}
                     <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
@@ -415,14 +436,33 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
               data-nav-active={itemActive ? "true" : undefined}
               data-nav-exact={itemActive ? "true" : undefined}
             >
-              <Link
-                href={item.url}
-                onClick={handleNavigate}
-                className="group/ticker flex min-w-0 items-center gap-2"
-              >
-                {item.icon && <item.icon />}
-                <TickerText enabled={useTickerLabels} text={item.title} className="flex-1" />
-              </Link>
+              {item.hardNav ? (
+                <a
+                  href={item.url}
+                  onClick={handleNavigate}
+                  className="group/ticker flex min-w-0 items-center gap-2"
+                >
+                  {item.icon && <item.icon />}
+                  <TickerText
+                    enabled={useTickerLabels}
+                    text={item.title}
+                    className="flex-1"
+                  />
+                </a>
+              ) : (
+                <Link
+                  href={item.url}
+                  onClick={handleNavigate}
+                  className="group/ticker flex min-w-0 items-center gap-2"
+                >
+                  {item.icon && <item.icon />}
+                  <TickerText
+                    enabled={useTickerLabels}
+                    text={item.title}
+                    className="flex-1"
+                  />
+                </Link>
+              )}
             </SidebarMenuButton>
           </SidebarMenuItem>
         );
