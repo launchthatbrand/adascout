@@ -74,7 +74,7 @@ export default function StandardLayout(props: {
         <div
           id="lt-layout-scroll-container"
           data-layout-scroll-container
-          className="h-full overflow-y-auto flex flex-col"
+          className="h-full min-w-0 max-w-full overflow-y-auto flex flex-col"
         >
           {props.bgComponent !== undefined ? props.bgComponent : null}
           {props.header !== undefined ? (
@@ -88,7 +88,7 @@ export default function StandardLayout(props: {
             />
           )}
           {/* <div className="relative w-full max-w-full overflow-x-hidden"> */}
-          <div className="min-h-0 flex flex-col flex-1">
+          <div className="min-h-0 min-w-0 w-full max-w-full flex flex-col flex-1 [&>*]:min-w-0 [&>*]:max-w-full">
             {props.children}
             {props.footer}
           </div>

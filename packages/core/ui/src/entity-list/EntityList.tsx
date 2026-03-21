@@ -302,7 +302,7 @@ export function EntityList<T extends Record<string, unknown>>({
   // If hook provided custom render, show it
   if (hookRender) {
     return (
-      <div className={clsx("w-full space-y-4", className)}>
+      <div className={clsx("min-w-0 w-full max-w-full space-y-4", className)}>
         {headerSection}
         {filterUI}
         {hookRender}
@@ -344,7 +344,7 @@ export function EntityList<T extends Record<string, unknown>>({
 
   // Default: render filtered list view
   return (
-    <div className={clsx("w-full space-y-4", className)}>
+    <div className={clsx("min-w-0 w-full max-w-full space-y-4", className)}>
       {headerSection}
       {filterUI}
       {mainContent}
