@@ -73,7 +73,7 @@ export const AnimatedThemeToggler = ({
       type="button"
       variant="ghost"
       className={cn(
-        "relative h-auto w-9 rounded-md text-foreground/80 hover:text-foreground border border-border/60 shadow-xs backdrop-blur-md transition-colors hover:bg-background/80",
+        "relative h-9 w-9 rounded-md border border-border/60 text-foreground/80 shadow-xs",
         className,
       )}
       {...props}
