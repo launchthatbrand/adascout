@@ -6,6 +6,7 @@
     ".": "./src/index.ts",
     "./*": "./src/*.tsx",
     "./components/ui/carousel": "./src/components/ui/carousel.tsx",
+    "./components/ui/apple-cards-carousel": "./src/components/ui/apple-cards-carousel.tsx",
     "./components/ui/tooltip-card": "./src/components/ui/tooltip-card.tsx",
     "./button": "./src/button.tsx",
     "./dropdown-menu": "./src/dropdown-menu.tsx",
