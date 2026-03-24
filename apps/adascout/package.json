@@ -20,7 +20,7 @@
     "@browserbasehq/convex-stagehand": "^0.0.3",
     "@browserbasehq/stagehand": "^3.1.0",
     "@convex-dev/auth": "^0.0.90",
-    "@convex-dev/workflow": "^0.3.3",
+    "@convex-dev/workflow": "^0.3.7",
     "@mdx-js/mdx": "^3.1.1",
     "@t3-oss/env-nextjs": "^0.13.8",
     "@vis.gl/react-maplibre": "^8.1.0",
