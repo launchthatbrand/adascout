@@ -43,15 +43,15 @@ export default function StandardLayout(props: {
 
   const sidebarProviderStyle =
     (typeof props.sidebarWidthIcon === "string" && props.sidebarWidthIcon.length > 0) ||
-    (typeof props.sidebarWidth === "string" && props.sidebarWidth.length > 0)
+      (typeof props.sidebarWidth === "string" && props.sidebarWidth.length > 0)
       ? ({
-          ...(typeof props.sidebarWidthIcon === "string" && props.sidebarWidthIcon.length > 0
-            ? { "--sidebar-width-icon": props.sidebarWidthIcon }
-            : {}),
-          ...(typeof props.sidebarWidth === "string" && props.sidebarWidth.length > 0
-            ? { "--sidebar-width": props.sidebarWidth }
-            : {}),
-        } as React.CSSProperties)
+        ...(typeof props.sidebarWidthIcon === "string" && props.sidebarWidthIcon.length > 0
+          ? { "--sidebar-width-icon": props.sidebarWidthIcon }
+          : {}),
+        ...(typeof props.sidebarWidth === "string" && props.sidebarWidth.length > 0
+          ? { "--sidebar-width": props.sidebarWidth }
+          : {}),
+      } as React.CSSProperties)
       : undefined;
 
   return (
@@ -67,7 +67,7 @@ export default function StandardLayout(props: {
       {/* <AppSidebar sidebar={props.sidebar} /> */}
       <SidebarInset
         className={cn(
-          "min-h-full z-50 max-h-[calc(100vh-15px)]! overflow-hidden isolate",
+          "isolate",
           props.className,
         )}
       >
