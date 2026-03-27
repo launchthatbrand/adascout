@@ -12,6 +12,12 @@ const configSchema = z.object({
   BROWSERLESS_CDP_URL: z.string().min(1),
   SCANNER_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
   SCANNER_IDLE_SLEEP_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
+  SCANNER_WAKE_MODE_ENABLED: z.coerce.boolean().default(true),
+  SCANNER_WAKE_SECRET: z.string().optional(),
+  SCANNER_FALLBACK_POLL_MS: z.coerce.number().int().min(1_000).max(300_000).default(45_000),
+  SCANNER_DRAIN_EMPTY_THRESHOLD: z.coerce.number().int().min(1).max(20).default(2),
+  SCANNER_DRAIN_EMPTY_SLEEP_MS: z.coerce.number().int().min(50).max(10_000).default(250),
+  SCANNER_ACTIVE_PAUSE_MS: z.coerce.number().int().min(0).max(5_000).default(100),
   SCANNER_PAGE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(180_000).default(45_000),
   SCANNER_SETTLE_MS: z.coerce.number().int().min(0).max(30_000).default(1_000),
   SCANNER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(8081),
@@ -46,6 +52,24 @@ type DiscoveryClaimResponse = {
   maxUrls: number;
 } | null;
 
+type WorkerTaskClaim =
+  | {
+      kind: "discovery";
+      jobId: string;
+      assetId: string;
+      sourceUrl: string;
+      maxUrls: number;
+    }
+  | {
+      kind: "page";
+      scanRunId: string;
+      pageRunId: string;
+      assetId: string;
+      pageUrl: string;
+      queueWaitMs: number;
+    }
+  | null;
+
 type WorkerFinding = {
   source: "axe";
   severity: "critical" | "serious" | "moderate" | "minor" | "info";
@@ -79,6 +103,12 @@ type WorkerState = {
   failedPages: number;
   inFlight: number;
   lastError?: string;
+  wakePending: boolean;
+  fallbackPolls: number;
+  wakeSignals: number;
+  drainCycles: number;
+  nullClaims: number;
+  lastScanRunId?: string;
 };
 
 type PageScanResult = {
@@ -127,6 +157,11 @@ const state: WorkerState = {
   processedPages: 0,
   failedPages: 0,
   inFlight: 0,
+  wakePending: true,
+  fallbackPolls: 0,
+  wakeSignals: 0,
+  drainCycles: 0,
+  nullClaims: 0,
 };
 
 const proxyEndpoints = String(config.SCANNER_PROXY_ENDPOINTS ?? "")
@@ -1466,14 +1501,9 @@ const discoverWithBrowserless = async (sourceUrl: string, maxUrls: number): Prom
   }
 };
 
-const processOneDiscoveryJob = async (): Promise<boolean> => {
-  const claim = await callAction<DiscoveryClaimResponse>(
-    "scans:claimNextExternalDiscoveryJob",
-    {
-      workerToken: config.ADA_SCANNER_WORKER_TOKEN,
-    },
-  );
-  if (!claim) return false;
+const processClaimedDiscoveryJob = async (
+  claim: Exclude<WorkerTaskClaim, null> & { kind: "discovery" },
+): Promise<boolean> => {
   try {
     const pageUrls = await discoverWithBrowserless(claim.sourceUrl, claim.maxUrls);
     await callAction<null>("scans:submitExternalDiscoveredPages", {
@@ -1512,11 +1542,9 @@ const processOneDiscoveryJob = async (): Promise<boolean> => {
   }
 };
 
-const processOnePage = async (): Promise<boolean> => {
-  const claim = await callAction<ClaimResponse>("scans:claimNextPageForExternalScanner", {
-    workerToken: config.ADA_SCANNER_WORKER_TOKEN,
-  });
-  if (!claim) return false;
+const processClaimedPage = async (
+  claim: Exclude<WorkerTaskClaim, null> & { kind: "page" },
+): Promise<boolean> => {
   const startedAt = Date.now();
   try {
     const scanResult = await runAxeScan(claim.pageUrl);
@@ -1541,6 +1569,7 @@ const processOnePage = async (): Promise<boolean> => {
       pageScreenshotCapturedAt: scanResult.pageScreenshotCapturedAt,
     });
     state.processedPages += 1;
+    state.lastScanRunId = claim.scanRunId;
     return true;
   } catch (error) {
     state.failedPages += 1;
@@ -1555,7 +1584,48 @@ const processOnePage = async (): Promise<boolean> => {
   }
 };
 
-const runWorkerLoop = async (workerIndex: number): Promise<void> => {
+const claimNextWorkerTask = async (): Promise<WorkerTaskClaim> => {
+  return await callAction<WorkerTaskClaim>("scans:claimNextWorkerTask", {
+    workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+    preferredScanRunId: state.lastScanRunId,
+  });
+};
+
+const processOneDiscoveryJob = async (): Promise<boolean> => {
+  const claim = await callAction<DiscoveryClaimResponse>(
+    "scans:claimNextExternalDiscoveryJob",
+    {
+      workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+    },
+  );
+  if (!claim) return false;
+  return await processClaimedDiscoveryJob({
+    kind: "discovery",
+    jobId: claim.jobId,
+    assetId: claim.assetId,
+    sourceUrl: claim.sourceUrl,
+    maxUrls: claim.maxUrls,
+  });
+};
+
+const processOnePage = async (): Promise<boolean> => {
+  const claim = await callAction<ClaimResponse>("scans:claimNextPageForExternalScanner", {
+    workerToken: config.ADA_SCANNER_WORKER_TOKEN,
+  });
+  if (!claim) return false;
+  return await processClaimedPage({
+    kind: "page",
+    scanRunId: claim.scanRunId,
+    pageRunId: claim.pageRunId,
+    assetId: claim.assetId,
+    pageUrl: claim.pageUrl,
+    queueWaitMs: claim.queueWaitMs,
+  });
+};
+
+const idleBackoffSequenceMs = [2_000, 5_000, 10_000, 30_000] as const;
+
+const runWorkerLoopLegacy = async (workerIndex: number): Promise<void> => {
   while (true) {
     state.inFlight += 1;
     const didWork = await (async () => {
@@ -1574,20 +1644,98 @@ const runWorkerLoop = async (workerIndex: number): Promise<void> => {
       await sleep(config.SCANNER_IDLE_SLEEP_MS);
     }
     if (didWork) {
-      // Keep short delay to avoid hotspot polling loops.
-      await sleep(150);
+      await sleep(config.SCANNER_ACTIVE_PAUSE_MS);
     }
     if (workerIndex === 0) {
-      // Single heartbeat logger to keep logs compact.
       const uptimeMs = Date.now() - state.startedAt;
       console.info(
         JSON.stringify({
           component: "adascout-axe-worker",
           event: "heartbeat",
+          mode: "legacy_polling",
           uptimeMs,
           processedPages: state.processedPages,
           failedPages: state.failedPages,
           inFlight: state.inFlight,
+          nullClaims: state.nullClaims,
+        }),
+      );
+    }
+  }
+};
+
+const runWorkerLoopWakeMode = async (workerIndex: number): Promise<void> => {
+  let idleBackoffIndex = 0;
+  let nextFallbackPollAt = Date.now();
+  while (true) {
+    const now = Date.now();
+    const triggerByWake = state.wakePending;
+    const triggerByFallback = now >= nextFallbackPollAt;
+    if (!triggerByWake && !triggerByFallback) {
+      const sleepMs = idleBackoffSequenceMs[Math.min(idleBackoffIndex, idleBackoffSequenceMs.length - 1)];
+      await sleep(sleepMs);
+      idleBackoffIndex = Math.min(idleBackoffIndex + 1, idleBackoffSequenceMs.length - 1);
+      continue;
+    }
+    if (triggerByFallback) {
+      state.fallbackPolls += 1;
+      nextFallbackPollAt = now + config.SCANNER_FALLBACK_POLL_MS;
+    }
+    state.wakePending = false;
+    state.drainCycles += 1;
+    idleBackoffIndex = 0;
+
+    let emptyClaims = 0;
+    let didAnyWork = false;
+    while (emptyClaims < config.SCANNER_DRAIN_EMPTY_THRESHOLD) {
+      state.inFlight += 1;
+      const task = await claimNextWorkerTask().catch((error) => {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        return null;
+      });
+      state.inFlight = Math.max(0, state.inFlight - 1);
+      if (!task) {
+        emptyClaims += 1;
+        state.nullClaims += 1;
+        await sleep(config.SCANNER_DRAIN_EMPTY_SLEEP_MS);
+        continue;
+      }
+      emptyClaims = 0;
+      const didWork = await (task.kind === "discovery"
+        ? processClaimedDiscoveryJob(task).catch((error) => {
+            state.lastError = error instanceof Error ? error.message : String(error);
+            return false;
+          })
+        : processClaimedPage(task).catch((error) => {
+            state.lastError = error instanceof Error ? error.message : String(error);
+            return false;
+          }));
+      if (didWork) {
+        didAnyWork = true;
+        await sleep(config.SCANNER_ACTIVE_PAUSE_MS);
+      }
+    }
+    if (!didAnyWork) {
+      const sleepMs = idleBackoffSequenceMs[Math.min(idleBackoffIndex, idleBackoffSequenceMs.length - 1)];
+      await sleep(sleepMs);
+      idleBackoffIndex = Math.min(idleBackoffIndex + 1, idleBackoffSequenceMs.length - 1);
+    }
+    if (workerIndex === 0) {
+      const uptimeMs = Date.now() - state.startedAt;
+      console.info(
+        JSON.stringify({
+          component: "adascout-axe-worker",
+          event: "heartbeat",
+          mode: "wake_drain",
+          uptimeMs,
+          processedPages: state.processedPages,
+          failedPages: state.failedPages,
+          inFlight: state.inFlight,
+          wakePending: state.wakePending,
+          fallbackPolls: state.fallbackPolls,
+          wakeSignals: state.wakeSignals,
+          drainCycles: state.drainCycles,
+          nullClaims: state.nullClaims,
         }),
       );
     }
@@ -1596,7 +1744,24 @@ const runWorkerLoop = async (workerIndex: number): Promise<void> => {
 
 const startHealthServer = () => {
   const server = createServer((req, res) => {
-    if (req.url !== "/healthz") {
+    const pathname = String(req.url ?? "").split("?")[0];
+    if (pathname === "/wake" && req.method === "POST") {
+      const expectedSecret = String(config.SCANNER_WAKE_SECRET ?? "").trim();
+      const providedSecret = String(req.headers["x-ada-scanner-wake-secret"] ?? "").trim();
+      if (expectedSecret.length > 0 && providedSecret !== expectedSecret) {
+        res.statusCode = 401;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "unauthorized" }));
+        return;
+      }
+      state.wakePending = true;
+      state.wakeSignals += 1;
+      res.statusCode = 202;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: true, wakeSignals: state.wakeSignals }));
+      return;
+    }
+    if (pathname !== "/healthz") {
       res.statusCode = 404;
       res.end("not found");
       return;
@@ -1608,6 +1773,12 @@ const startHealthServer = () => {
       failedPages: state.failedPages,
       inFlight: state.inFlight,
       lastError: state.lastError ?? null,
+      wakePending: state.wakePending,
+      wakeSignals: state.wakeSignals,
+      fallbackPolls: state.fallbackPolls,
+      drainCycles: state.drainCycles,
+      nullClaims: state.nullClaims,
+      wakeModeEnabled: config.SCANNER_WAKE_MODE_ENABLED,
     };
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify(payload));
@@ -1625,9 +1796,24 @@ const startHealthServer = () => {
 
 const main = async () => {
   startHealthServer();
+  console.info(
+    JSON.stringify({
+      component: "adascout-axe-worker",
+      event: "worker_boot",
+      wakeModeEnabled: config.SCANNER_WAKE_MODE_ENABLED,
+      fallbackPollMs: config.SCANNER_FALLBACK_POLL_MS,
+      drainEmptyThreshold: config.SCANNER_DRAIN_EMPTY_THRESHOLD,
+      idleSleepMs: config.SCANNER_IDLE_SLEEP_MS,
+      maxConcurrency: config.SCANNER_MAX_CONCURRENCY,
+    }),
+  );
   const workers: Array<Promise<void>> = [];
   for (let i = 0; i < config.SCANNER_MAX_CONCURRENCY; i += 1) {
-    workers.push(runWorkerLoop(i));
+    workers.push(
+      config.SCANNER_WAKE_MODE_ENABLED
+        ? runWorkerLoopWakeMode(i)
+        : runWorkerLoopLegacy(i),
+    );
   }
   await Promise.all(workers);
 };
