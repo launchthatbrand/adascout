@@ -58,6 +58,8 @@ interface NavMainProps {
   items?: NavItem[];
   sections?: NavSection[];
   labelBehavior?: "default" | "ticker";
+  autoCenterActiveOnPathChange?: boolean;
+  subitemScrollOnPathChange?: "none" | "if-needed" | "center";
 }
 
 const TickerText = ({
@@ -136,7 +138,13 @@ const TickerText = ({
   );
 };
 
-export function NavMain({ items, sections, labelBehavior = "default" }: NavMainProps) {
+export function NavMain({
+  items,
+  sections,
+  labelBehavior = "default",
+  autoCenterActiveOnPathChange = true,
+  subitemScrollOnPathChange = "center",
+}: NavMainProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { isMobile, openMobile, setOpenMobile } = useSidebar();
@@ -220,6 +228,12 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
   }
 
   useEffect(() => {
+    if (
+      !autoCenterActiveOnPathChange &&
+      subitemScrollOnPathChange === "none"
+    ) {
+      return;
+    }
     const container = containerRef.current;
     if (!container) return;
 
@@ -239,7 +253,11 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
       );
     };
 
-    const scrollTargetIntoSubmenu = (target: HTMLElement) => {
+    const scrollTargetIntoSubmenu = (
+      target: HTMLElement,
+      mode: "none" | "if-needed" | "center",
+    ) => {
+      if (mode === "none") return;
       const submenuScrollContainer = target.closest<HTMLElement>(
         "[data-nav-sub-scroll='true']",
       );
@@ -247,8 +265,23 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
       const containerRect = submenuScrollContainer.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
       const currentTop = submenuScrollContainer.scrollTop;
-      const targetTopRelative =
-        targetRect.top - containerRect.top + currentTop;
+      if (mode === "if-needed") {
+        const margin = 12;
+        const isAbove = targetRect.top < containerRect.top + margin;
+        const isBelow = targetRect.bottom > containerRect.bottom - margin;
+        if (!isAbove && !isBelow) return;
+        const targetTopRelative = targetRect.top - containerRect.top + currentTop;
+        const nextTop = isAbove
+          ? targetTopRelative - margin
+          : targetTopRelative - submenuScrollContainer.clientHeight + targetRect.height + margin;
+        submenuScrollContainer.scrollTo({
+          top: Math.max(0, nextTop),
+          behavior: "auto",
+        });
+        return;
+      }
+
+      const targetTopRelative = targetRect.top - containerRect.top + currentTop;
       const centeredTop =
         targetTopRelative -
         submenuScrollContainer.clientHeight / 2 +
@@ -262,11 +295,13 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
     const scrollTargetIntoView = () => {
       const target = resolveTarget();
       if (!target) return;
-      target.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-      scrollTargetIntoSubmenu(target);
+      if (autoCenterActiveOnPathChange) {
+        target.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }
+      scrollTargetIntoSubmenu(target, subitemScrollOnPathChange);
     };
 
     let attempts = 0;
@@ -286,7 +321,12 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
         window.clearTimeout(timeoutId);
       }
     };
-  }, [pathname, navItemCount]);
+  }, [
+    autoCenterActiveOnPathChange,
+    subitemScrollOnPathChange,
+    pathname,
+    navItemCount,
+  ]);
 
   useEffect(() => {
     const lastPathname = lastPathnameRef.current;
@@ -394,11 +434,15 @@ export function NavMain({ items, sections, labelBehavior = "default" }: NavMainP
                     className="max-h-[400px] overflow-y-auto pr-1"
                     data-nav-sub-scroll="true"
                   >
-                    {item.items.map((subItem) => {
+                    {item.items.map((subItem, subIndex) => {
                       const subItemActive = isActive(subItem.url);
+                      const subItemKey =
+                        (typeof subItem.url === "string" && subItem.url.length > 0)
+                          ? `${subItem.url}::${subItem.title}`
+                          : `${subItem.title}-${subIndex}`;
 
                       return (
-                        <SidebarMenuSubItem key={subItem.title}>
+                        <SidebarMenuSubItem key={subItemKey}>
                           <SidebarMenuSubButton
                             asChild
                             className={cn(

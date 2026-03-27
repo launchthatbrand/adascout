@@ -113,7 +113,7 @@ export function TeamSwitcher({
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
-              className="data-[state=open]:bg-sidebar-accent h-auto data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-14! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center"
+              className="data-[state=open]:bg-sidebar-accent h-auto data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-14! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center disabled:opacity-100"
               disabled={isTriggerDisabled}
             >
               <div
