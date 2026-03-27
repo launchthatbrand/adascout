@@ -41,6 +41,28 @@ interface WorkflowStarter {
 }
 
 type ExternalDiscoveryJobStatus = "queued" | "running" | "completed" | "failed";
+type WorkerTaskClaim =
+  | {
+      kind: "discovery";
+      jobId: Id<"externalDiscoveryJobs">;
+      assetId: Id<"assets">;
+      sourceUrl: string;
+      maxUrls: number;
+    }
+  | {
+      kind: "page";
+      scanRunId: Id<"scanRuns">;
+      pageRunId: Id<"scanRunPages">;
+      assetId: Id<"assets">;
+      pageUrl: string;
+      queueWaitMs: number;
+    };
+
+const EXTERNAL_SCANNER_WAKE_CHANNEL = "external_scanner";
+const EXTERNAL_SCANNER_WAKE_DEBOUNCE_MS = 1_000;
+const scanRunnerInternal = (internal as unknown as {
+  scanRunner: { notifyExternalScannerWorker: unknown };
+}).scanRunner;
 
 const sleep = async (ms: number) =>
   await new Promise<void>((resolve) => {
@@ -1162,6 +1184,9 @@ export const upsertScanRunPages = internalMutation({
       status: "running",
       updatedAt: now,
     });
+    if (insertedCount > 0) {
+      await scheduleExternalScannerWake(ctx, "scan_run_pages_upserted");
+    }
     const progress = await recomputeScanRunProgress(ctx, args.scanRunId);
     return { insertedCount, totalPages: progress.totalPages };
   },
@@ -2353,7 +2378,7 @@ export const enqueueExternalDiscoveryJob = internalMutation({
   handler: async (ctx, args) => {
     const now = nowMs();
     const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
-    return await ctx.db.insert("externalDiscoveryJobs", {
+    const jobId = await ctx.db.insert("externalDiscoveryJobs", {
       assetId: args.assetId,
       sourceUrl: normalizeHttpUrl(args.sourceUrl),
       maxUrls,
@@ -2361,6 +2386,8 @@ export const enqueueExternalDiscoveryJob = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    await scheduleExternalScannerWake(ctx, "external_discovery_enqueued");
+    return jobId;
   },
 });
 
@@ -2414,6 +2441,43 @@ const assertScannerWorkerAuthorized = (providedToken: string) => {
   if (providedToken !== expectedToken) {
     throw new ConvexError("Unauthorized scanner worker.");
   }
+};
+
+const scheduleExternalScannerWake = async (
+  ctx: MutationCtx,
+  reason: string,
+): Promise<void> => {
+  const now = nowMs();
+  const existing = await ctx.db
+    .query("scannerWakeSignals")
+    .withIndex("by_channel", (q) => q.eq("channel", EXTERNAL_SCANNER_WAKE_CHANNEL))
+    .first();
+  if (
+    existing &&
+    now - existing.lastSignaledAt < EXTERNAL_SCANNER_WAKE_DEBOUNCE_MS
+  ) {
+    return;
+  }
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      lastSignaledAt: now,
+      updatedAt: now,
+    });
+  } else {
+    await ctx.db.insert("scannerWakeSignals", {
+      channel: EXTERNAL_SCANNER_WAKE_CHANNEL,
+      lastSignaledAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  await (
+    ctx.scheduler.runAfter as unknown as (
+      delayMs: number,
+      functionRef: unknown,
+      args: unknown,
+    ) => Promise<unknown>
+  )(0, scanRunnerInternal.notifyExternalScannerWorker, { reason });
 };
 
 export const listRunningWebsiteScanRunsForWorker = internalQuery({
@@ -2643,6 +2707,114 @@ export const claimNextPageForExternalScanner = action({
         queueWaitMs,
       };
     }
+    return null;
+  },
+});
+
+const workerTaskClaimValidator = v.union(
+  v.object({
+    kind: v.literal("discovery"),
+    jobId: v.id("externalDiscoveryJobs"),
+    assetId: v.id("assets"),
+    sourceUrl: v.string(),
+    maxUrls: v.number(),
+  }),
+  v.object({
+    kind: v.literal("page"),
+    scanRunId: v.id("scanRuns"),
+    pageRunId: v.id("scanRunPages"),
+    assetId: v.id("assets"),
+    pageUrl: v.string(),
+    queueWaitMs: v.number(),
+  }),
+);
+
+export const claimNextWorkerTask = action({
+  args: {
+    workerToken: v.string(),
+    preferredScanRunId: v.optional(v.id("scanRuns")),
+  },
+  returns: v.union(workerTaskClaimValidator, v.null()),
+  handler: async (ctx, args): Promise<WorkerTaskClaim | null> => {
+    assertScannerWorkerAuthorized(args.workerToken);
+
+    const queued = await ctx.runQuery(internal.scans.listQueuedExternalDiscoveryJobs, {});
+    const discoveryJobId = (queued as Array<Id<"externalDiscoveryJobs">>)[0];
+    if (discoveryJobId) {
+      const claimed = (await ctx.runMutation(internal.scans.claimExternalDiscoveryJob, {
+        jobId: discoveryJobId,
+      })) as
+        | {
+            _id: Id<"externalDiscoveryJobs">;
+            assetId: Id<"assets">;
+            sourceUrl: string;
+            maxUrls: number;
+          }
+        | null;
+      if (claimed) {
+        return {
+          kind: "discovery",
+          jobId: claimed._id,
+          assetId: claimed.assetId,
+          sourceUrl: claimed.sourceUrl,
+          maxUrls: claimed.maxUrls,
+        };
+      }
+    }
+
+    const candidateScanRunIds: Array<Id<"scanRuns">> = [];
+    if (args.preferredScanRunId) {
+      candidateScanRunIds.push(args.preferredScanRunId);
+    }
+    const discoveredCandidates = (await ctx.runQuery(
+      internal.scans.listRunningWebsiteScanRunsForWorker,
+      {},
+    )) as Array<Id<"scanRuns">>;
+    for (const scanRunId of discoveredCandidates) {
+      if (candidateScanRunIds.includes(scanRunId)) continue;
+      candidateScanRunIds.push(scanRunId);
+    }
+
+    for (const scanRunId of candidateScanRunIds) {
+      const pageIds = (await ctx.runMutation(internal.scans.claimQueuedScanRunPages, {
+        scanRunId,
+        limit: 1,
+      })) as Array<Id<"scanRunPages">>;
+      const pageRunId: Id<"scanRunPages"> | undefined = pageIds[0];
+      if (!pageRunId) continue;
+      const processing = (await ctx.runQuery(
+        internal.scans.getScanRunPageForProcessing,
+        {
+          scanRunId,
+          pageRunId,
+        },
+      )) as
+        | {
+            scanRun: { assetId: Id<"assets"> };
+            pageRun: { pageUrl: string; createdAt: number };
+          }
+        | null;
+      if (!processing) continue;
+      const queueWaitMs = Math.max(0, nowMs() - processing.pageRun.createdAt);
+      const claimed = await ctx.runMutation(
+        internal.scans.claimScanRunPageForExecution,
+        {
+          scanRunId,
+          pageRunId,
+          queueWaitMs,
+        },
+      );
+      if (!claimed) continue;
+      return {
+        kind: "page",
+        scanRunId,
+        pageRunId,
+        assetId: processing.scanRun.assetId,
+        pageUrl: processing.pageRun.pageUrl,
+        queueWaitMs,
+      };
+    }
+
     return null;
   },
 });
@@ -2890,6 +3062,7 @@ export const createExternalWorkerSmokeRun = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    await scheduleExternalScannerWake(ctx, "external_worker_smoke_run_enqueued");
     return { scanRunId, pageRunId };
   },
 });

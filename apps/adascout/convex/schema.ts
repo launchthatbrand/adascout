@@ -131,6 +131,13 @@ export default defineSchema({
     .index("by_leaseKey_holderId", ["leaseKey", "holderId"])
     .index("by_scanRun_createdAt", ["scanRunId", "createdAt"]),
 
+  scannerWakeSignals: defineTable({
+    channel: v.string(),
+    lastSignaledAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_channel", ["channel"]),
+
   discoveredPages: defineTable({
     assetId: v.id("assets"),
     pageUrl: v.string(),

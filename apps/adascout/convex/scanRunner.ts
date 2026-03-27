@@ -399,6 +399,69 @@ const parsePositiveIntEnv = (
   return parsed;
 };
 
+export const notifyExternalScannerWorker = internalAction({
+  args: {
+    reason: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (_ctx, args): Promise<null> => {
+    const wakeUrl = String(process.env.ADA_SCANNER_WAKE_URL ?? "").trim();
+    if (!wakeUrl) {
+      return null;
+    }
+    const wakeSecret = String(process.env.ADA_SCANNER_WAKE_SECRET ?? "").trim();
+    const timeoutMs = Math.max(
+      500,
+      Math.min(
+        10_000,
+        parsePositiveIntEnv(process.env.ADA_SCANNER_WAKE_TIMEOUT_MS, 3_000),
+      ),
+    );
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+      if (wakeSecret.length > 0) {
+        headers["x-ada-scanner-wake-secret"] = wakeSecret;
+      }
+      const response = await fetch(wakeUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          reason: args.reason ?? "queue_updated",
+          sentAt: nowMs(),
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        console.warn(
+          JSON.stringify({
+            component: "adascout-scan",
+            event: "external_scanner_wake_failed",
+            status: response.status,
+            reason: args.reason ?? "queue_updated",
+          }),
+        );
+      }
+      return null;
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          component: "adascout-scan",
+          event: "external_scanner_wake_error",
+          reason: args.reason ?? "queue_updated",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  },
+});
+
 const computeEvidenceHash = (args: {
   source: "axe" | "ibm" | "pdf" | "stagehand";
   ruleId: string;
