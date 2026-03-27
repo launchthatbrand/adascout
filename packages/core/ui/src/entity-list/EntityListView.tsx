@@ -214,7 +214,7 @@ export function EntityListView<T extends Record<string, unknown>>({
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    getPaginationRowModel: enableFooter ? getPaginationRowModel() : undefined,
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
@@ -231,11 +231,13 @@ export function EntityListView<T extends Record<string, unknown>>({
         : "id" in row
           ? String((row as unknown as { id: unknown }).id)
           : JSON.stringify(row),
-    initialState: {
-      pagination: {
-        pageSize: 20,
-      },
-    },
+    initialState: enableFooter
+      ? {
+          pagination: {
+            pageSize: 20,
+          },
+        }
+      : undefined,
     enableRowSelection,
   });
 
