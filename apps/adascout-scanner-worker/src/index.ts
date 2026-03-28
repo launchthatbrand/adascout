@@ -14,7 +14,12 @@ const configSchema = z.object({
   SCANNER_IDLE_SLEEP_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
   SCANNER_WAKE_MODE_ENABLED: z.coerce.boolean().default(true),
   SCANNER_WAKE_SECRET: z.string().optional(),
-  SCANNER_FALLBACK_POLL_MS: z.coerce.number().int().min(1_000).max(300_000).default(45_000),
+  SCANNER_FALLBACK_POLL_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(86_400_000)
+    .default(45_000),
   SCANNER_DRAIN_EMPTY_THRESHOLD: z.coerce.number().int().min(1).max(20).default(2),
   SCANNER_DRAIN_EMPTY_SLEEP_MS: z.coerce.number().int().min(50).max(10_000).default(250),
   SCANNER_ACTIVE_PAUSE_MS: z.coerce.number().int().min(0).max(5_000).default(100),

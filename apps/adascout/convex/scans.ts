@@ -43,26 +43,39 @@ interface WorkflowStarter {
 type ExternalDiscoveryJobStatus = "queued" | "running" | "completed" | "failed";
 type WorkerTaskClaim =
   | {
-      kind: "discovery";
-      jobId: Id<"externalDiscoveryJobs">;
-      assetId: Id<"assets">;
-      sourceUrl: string;
-      maxUrls: number;
-    }
+    kind: "discovery";
+    jobId: Id<"externalDiscoveryJobs">;
+    assetId: Id<"assets">;
+    sourceUrl: string;
+    maxUrls: number;
+  }
   | {
-      kind: "page";
-      scanRunId: Id<"scanRuns">;
-      pageRunId: Id<"scanRunPages">;
-      assetId: Id<"assets">;
-      pageUrl: string;
-      queueWaitMs: number;
-    };
+    kind: "page";
+    scanRunId: Id<"scanRuns">;
+    pageRunId: Id<"scanRunPages">;
+    assetId: Id<"assets">;
+    pageUrl: string;
+    queueWaitMs: number;
+  };
 
 const EXTERNAL_SCANNER_WAKE_CHANNEL = "external_scanner";
 const EXTERNAL_SCANNER_WAKE_DEBOUNCE_MS = 1_000;
+const ADASCOUT_BROWSERLAUNCH_APP = "adascout";
 const scanRunnerInternal = (internal as unknown as {
   scanRunner: { notifyExternalScannerWorker: unknown };
 }).scanRunner;
+interface BrowserLaunchComponentRefs {
+  launchthat_browserlaunch?: {
+    mutations?: Record<string, unknown>;
+    queries?: Record<string, unknown>;
+  };
+}
+const browserLaunchComponent = (components as unknown as BrowserLaunchComponentRefs)
+  .launchthat_browserlaunch;
+const browserLaunchMutations: Record<string, unknown> | undefined =
+  browserLaunchComponent?.mutations;
+const browserLaunchQueries: Record<string, unknown> | undefined =
+  browserLaunchComponent?.queries;
 
 const sleep = async (ms: number) =>
   await new Promise<void>((resolve) => {
@@ -313,11 +326,12 @@ export const createScanRun = mutation({
     const assetUrlScope = (asset as { urlScope?: "single_page" | "website" })
       .urlScope;
     const mode = asset.kind === "url" ? "website_pages" : "single_asset";
+    const singlePageUrl = asset.normalizedUrl ?? asset.sourceUrl;
     const singlePageSeedUrl =
       asset.kind === "url" &&
-      assetUrlScope === "single_page" &&
-      (asset.normalizedUrl ?? asset.sourceUrl)
-        ? [normalizeHttpUrl((asset.normalizedUrl ?? asset.sourceUrl) as string)]
+        assetUrlScope === "single_page" &&
+        singlePageUrl
+        ? [normalizeHttpUrl(singlePageUrl)]
         : undefined;
     const workflowPageUrls =
       args.pageUrls && args.pageUrls.length > 0
@@ -369,11 +383,12 @@ export const rerunScan = mutation({
     const assetUrlScope = (asset as { urlScope?: "single_page" | "website" })
       .urlScope;
     const mode = asset.kind === "url" ? "website_pages" : "single_asset";
+    const singlePageUrl = asset.normalizedUrl ?? asset.sourceUrl;
     const workflowPageUrls =
       asset.kind === "url" &&
-      assetUrlScope === "single_page" &&
-      (asset.normalizedUrl ?? asset.sourceUrl)
-        ? [normalizeHttpUrl((asset.normalizedUrl ?? asset.sourceUrl) as string)]
+        assetUrlScope === "single_page" &&
+        singlePageUrl
+        ? [normalizeHttpUrl(singlePageUrl)]
         : undefined;
     const scanRunId = await ctx.db.insert("scanRuns", {
       assetId: previous.assetId,
@@ -454,12 +469,12 @@ export const rerunSelectedPages = mutation({
       requestedIds.length > 0
         ? requestedIds
         : rows
-            .filter((row) => {
-              if (args.onlyFailed && row.status !== "failed") return false;
-              if (args.includeAllPages) return true;
-              return eligibleByLifecycle.has(row._id);
-            })
-            .map((row) => row._id);
+          .filter((row) => {
+            if (args.onlyFailed && row.status !== "failed") return false;
+            if (args.includeAllPages) return true;
+            return eligibleByLifecycle.has(row._id);
+          })
+          .map((row) => row._id);
 
     if (finalTargetIds.length === 0) {
       return 0;
@@ -818,7 +833,7 @@ export const listMyScanRunPagesByAsset = query({
       .order("desc")
       .take(100);
 
-    type PageRow = {
+    interface PageRow {
       _id: Id<"scanRunPages">;
       _creationTime: number;
       scanRunId: Id<"scanRuns">;
@@ -842,7 +857,7 @@ export const listMyScanRunPagesByAsset = query({
       pageScreenshotCapturedAt?: number;
       createdAt: number;
       updatedAt: number;
-    };
+    }
 
     const allPages: PageRow[] = [];
     for (const scanRun of scanRuns) {
@@ -1012,21 +1027,21 @@ export const getMyAssetPageDetail = query({
 
     let latestPageRun:
       | {
-          _id: Id<"scanRunPages">;
-          scanRunId: Id<"scanRuns">;
-          status: "queued" | "running" | "completed" | "failed" | "canceled";
-          attempt: number;
-          startedAt?: number;
-          completedAt?: number;
-          failedAt?: number;
-          errorMessage?: string;
-          findingCount?: number;
-          retryCount?: number;
-          terminalErrorCategory?: string;
-          updatedAt: number;
-          pageScreenshotStorageId?: Id<"_storage">;
-          pageScreenshotCapturedAt?: number;
-        }
+        _id: Id<"scanRunPages">;
+        scanRunId: Id<"scanRuns">;
+        status: "queued" | "running" | "completed" | "failed" | "canceled";
+        attempt: number;
+        startedAt?: number;
+        completedAt?: number;
+        failedAt?: number;
+        errorMessage?: string;
+        findingCount?: number;
+        retryCount?: number;
+        terminalErrorCategory?: string;
+        updatedAt: number;
+        pageScreenshotStorageId?: Id<"_storage">;
+        pageScreenshotCapturedAt?: number;
+      }
       | null = null;
 
     for (const run of scanRuns) {
@@ -1185,6 +1200,28 @@ export const upsertScanRunPages = internalMutation({
       updatedAt: now,
     });
     if (insertedCount > 0) {
+      if (isAdascoutBrowserLaunchEnabled()) {
+        const enqueueTask = browserLaunchMutations?.enqueueTask;
+        if (enqueueTask) {
+          await (
+            ctx.runMutation as unknown as (
+              functionRef: unknown,
+              args: unknown,
+            ) => Promise<unknown>
+          )(enqueueTask, {
+            app: ADASCOUT_BROWSERLAUNCH_APP,
+            taskType: "scan_run_pages_available",
+            queue: "adascout_scans",
+            externalRef: `scanRun:${args.scanRunId}`,
+            payloadJson: JSON.stringify({
+              scanRunId: args.scanRunId,
+              insertedCount,
+              totalQueuedUrls: args.pageUrls.length,
+            }),
+            maxAttempts: 2,
+          }).catch(() => undefined);
+        }
+      }
       await scheduleExternalScannerWake(ctx, "scan_run_pages_upserted");
     }
     const progress = await recomputeScanRunProgress(ctx, args.scanRunId);
@@ -1414,14 +1451,14 @@ export const getScanRunProgressForWorkflow = internalMutation({
     }
     const rows = args.pageRunIds?.length
       ? (
-          await Promise.all(args.pageRunIds.map(async (pageRunId) => await ctx.db.get(pageRunId)))
-        ).filter(
-          (row): row is NonNullable<typeof row> => Boolean(row && row.scanRunId === args.scanRunId),
-        )
+        await Promise.all(args.pageRunIds.map(async (pageRunId) => await ctx.db.get(pageRunId)))
+      ).filter(
+        (row): row is NonNullable<typeof row> => Boolean(row && row.scanRunId === args.scanRunId),
+      )
       : await ctx.db
-          .query("scanRunPages")
-          .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
-          .collect();
+        .query("scanRunPages")
+        .withIndex("by_scanRun_createdAt", (q) => q.eq("scanRunId", args.scanRunId))
+        .collect();
 
     let queuedPages = 0;
     let runningPages = 0;
@@ -2005,7 +2042,7 @@ export const discoverPages = mutation({
     }
 
     const now = nowMs();
-    const insertedPages: Array<{
+    const insertedPages: {
       _id: Id<"discoveredPages">;
       _creationTime: number;
       assetId: Id<"assets">;
@@ -2014,13 +2051,13 @@ export const discoverPages = mutation({
       discoveredAt: number;
       lastScannedAt?: number;
       lastScanStatus?:
-        | "queued"
-        | "running"
-        | "completed"
-        | "failed"
-        | "canceled";
+      | "queued"
+      | "running"
+      | "completed"
+      | "failed"
+      | "canceled";
       lastFindingCount?: number;
-    }> = [];
+    }[] = [];
 
     for (const pageUrl of pageUrls) {
       const existing = await ctx.db
@@ -2152,8 +2189,8 @@ export const detectPages = action({
       asset.urlScope === "single_page"
         ? [normalizeHttpUrl(asset.normalizedUrl ?? asset.sourceUrl)]
         : await discoverWebsiteUrls(asset.sourceUrl, 500, {
-            sitemapOnly: true,
-          });
+          sitemapOnly: true,
+        });
 
     if (asset.urlScope !== "single_page" && scopedPageUrls.length <= 1) {
       // Before delegating to external browser discovery, attempt full HTTP crawl
@@ -2189,10 +2226,10 @@ export const detectPages = action({
           jobId: discoveryJobId,
         })) as
           | {
-              status: ExternalDiscoveryJobStatus;
-              discoveredUrls?: string[];
-              errorMessage?: string;
-            }
+            status: ExternalDiscoveryJobStatus;
+            discoveredUrls?: string[];
+            errorMessage?: string;
+          }
           | null;
         if (!job) break;
         if (job.status === "completed") {
@@ -2377,7 +2414,7 @@ export const enqueueExternalDiscoveryJob = internalMutation({
   returns: v.id("externalDiscoveryJobs"),
   handler: async (ctx, args) => {
     const now = nowMs();
-    const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls ?? 100)));
+    const maxUrls = Math.max(1, Math.min(500, Number(args.maxUrls)));
     const jobId = await ctx.db.insert("externalDiscoveryJobs", {
       assetId: args.assetId,
       sourceUrl: normalizeHttpUrl(args.sourceUrl),
@@ -2386,6 +2423,29 @@ export const enqueueExternalDiscoveryJob = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    if (isAdascoutBrowserLaunchEnabled()) {
+      const enqueueTask = browserLaunchMutations?.enqueueTask;
+      if (enqueueTask) {
+        await (
+          ctx.runMutation as unknown as (
+            functionRef: unknown,
+            args: unknown,
+          ) => Promise<unknown>
+        )(enqueueTask, {
+          app: ADASCOUT_BROWSERLAUNCH_APP,
+          taskType: "external_discovery",
+          queue: "adascout_scans",
+          externalRef: `externalDiscoveryJob:${jobId}`,
+          payloadJson: JSON.stringify({
+            jobId,
+            assetId: args.assetId,
+            sourceUrl: args.sourceUrl,
+            maxUrls,
+          }),
+          maxAttempts: 3,
+        }).catch(() => undefined);
+      }
+    }
     await scheduleExternalScannerWake(ctx, "external_discovery_enqueued");
     return jobId;
   },
@@ -2440,6 +2500,83 @@ const assertScannerWorkerAuthorized = (providedToken: string) => {
   }
   if (providedToken !== expectedToken) {
     throw new ConvexError("Unauthorized scanner worker.");
+  }
+};
+
+const isAdascoutBrowserLaunchEnabled = (): boolean => {
+  const raw = (
+    globalThis as { process?: { env?: Record<string, string | undefined> } }
+  ).process?.env?.ADA_SCOUT_BROWSERLAUNCH_ENABLED;
+  if (!raw) return true;
+  return raw.trim().toLowerCase() !== "false";
+};
+
+const upsertAdascoutReplayRun = async (
+  ctx: unknown,
+  externalRef: string,
+  taskType: string,
+): Promise<string | null> => {
+  if (!isAdascoutBrowserLaunchEnabled()) return null;
+  const upsertRunForExternalRef = browserLaunchMutations?.upsertRunForExternalRef;
+  if (!upsertRunForExternalRef) return null;
+  const runMutation = (
+    ctx as { runMutation: (functionRef: unknown, args: unknown) => Promise<unknown> }
+  ).runMutation;
+  return (await runMutation(upsertRunForExternalRef, {
+    app: ADASCOUT_BROWSERLAUNCH_APP,
+    externalRef,
+    taskType,
+  })) as string;
+};
+
+const appendAdascoutReplayStep = async (
+  ctx: unknown,
+  args: {
+    runId: string;
+    seq: number;
+    kind: string;
+    status?: string;
+    label?: string;
+    url?: string;
+    resultSummary?: string;
+    errorMessage?: string;
+    screenshotStorageId?: Id<"_storage">;
+  },
+): Promise<void> => {
+  const appendRunStep = browserLaunchMutations?.appendRunStep;
+  if (!appendRunStep) return;
+  const runMutation = (
+    ctx as { runMutation: (functionRef: unknown, args: unknown) => Promise<unknown> }
+  ).runMutation;
+  await runMutation(appendRunStep, {
+      runId: args.runId,
+      seq: args.seq,
+      kind: args.kind,
+      status: args.status,
+      label: args.label,
+      url: args.url,
+      resultSummary: args.resultSummary,
+      errorMessage: args.errorMessage,
+      screenshotStorageId: args.screenshotStorageId,
+      metadataJson: JSON.stringify({
+        source: "adascout",
+        at: nowMs(),
+      }),
+    }).catch(() => undefined);
+  if (args.screenshotStorageId) {
+    const createRunArtifact = browserLaunchMutations.createRunArtifact;
+    if (createRunArtifact) {
+      await runMutation(createRunArtifact, {
+          runId: args.runId,
+          kind: "screenshot",
+          storageId: args.screenshotStorageId,
+          stepSeq: args.seq,
+          metadataJson: JSON.stringify({
+            source: "adascout",
+            kind: args.kind,
+          }),
+        }).catch(() => undefined);
+    }
   }
 };
 
@@ -2615,17 +2752,17 @@ export const claimNextExternalDiscoveryJob = action({
   handler: async (ctx, args) => {
     assertScannerWorkerAuthorized(args.workerToken);
     const queued = await ctx.runQuery(internal.scans.listQueuedExternalDiscoveryJobs, {});
-    const jobId = (queued as Array<Id<"externalDiscoveryJobs">>)[0];
+    const jobId = (queued as Id<"externalDiscoveryJobs">[])[0];
     if (!jobId) return null;
     const claimed = (await ctx.runMutation(internal.scans.claimExternalDiscoveryJob, {
       jobId,
     })) as
       | {
-          _id: Id<"externalDiscoveryJobs">;
-          assetId: Id<"assets">;
-          sourceUrl: string;
-          maxUrls: number;
-        }
+        _id: Id<"externalDiscoveryJobs">;
+        assetId: Id<"assets">;
+        sourceUrl: string;
+        maxUrls: number;
+      }
       | null;
     if (!claimed) return null;
     return {
@@ -2663,17 +2800,17 @@ export const claimNextPageForExternalScanner = action({
     queueWaitMs: number;
   } | null> => {
     assertScannerWorkerAuthorized(args.workerToken);
-    const candidateScanRunIds: Array<Id<"scanRuns">> = args.scanRunId
+    const candidateScanRunIds: Id<"scanRuns">[] = args.scanRunId
       ? [args.scanRunId]
       : ((await ctx.runQuery(
-          internal.scans.listRunningWebsiteScanRunsForWorker,
-          {},
-        )) as Array<Id<"scanRuns">>);
+        internal.scans.listRunningWebsiteScanRunsForWorker,
+        {},
+        )) as Id<"scanRuns">[]);
     for (const scanRunId of candidateScanRunIds) {
       const pageIds = (await ctx.runMutation(internal.scans.claimQueuedScanRunPages, {
         scanRunId,
         limit: 1,
-      })) as Array<Id<"scanRunPages">>;
+      })) as Id<"scanRunPages">[];
       const pageRunId: Id<"scanRunPages"> | undefined = pageIds[0];
       if (!pageRunId) continue;
       const processing = (await ctx.runQuery(
@@ -2684,9 +2821,9 @@ export const claimNextPageForExternalScanner = action({
         },
       )) as
         | {
-            scanRun: { assetId: Id<"assets"> };
-            pageRun: { pageUrl: string; createdAt: number };
-          }
+          scanRun: { assetId: Id<"assets"> };
+          pageRun: { pageUrl: string; createdAt: number };
+        }
         | null;
       if (!processing) continue;
       const queueWaitMs = Math.max(0, nowMs() - processing.pageRun.createdAt);
@@ -2739,17 +2876,17 @@ export const claimNextWorkerTask = action({
     assertScannerWorkerAuthorized(args.workerToken);
 
     const queued = await ctx.runQuery(internal.scans.listQueuedExternalDiscoveryJobs, {});
-    const discoveryJobId = (queued as Array<Id<"externalDiscoveryJobs">>)[0];
+    const discoveryJobId = (queued as Id<"externalDiscoveryJobs">[])[0];
     if (discoveryJobId) {
       const claimed = (await ctx.runMutation(internal.scans.claimExternalDiscoveryJob, {
         jobId: discoveryJobId,
       })) as
         | {
-            _id: Id<"externalDiscoveryJobs">;
-            assetId: Id<"assets">;
-            sourceUrl: string;
-            maxUrls: number;
-          }
+          _id: Id<"externalDiscoveryJobs">;
+          assetId: Id<"assets">;
+          sourceUrl: string;
+          maxUrls: number;
+        }
         | null;
       if (claimed) {
         return {
@@ -2762,14 +2899,14 @@ export const claimNextWorkerTask = action({
       }
     }
 
-    const candidateScanRunIds: Array<Id<"scanRuns">> = [];
+    const candidateScanRunIds: Id<"scanRuns">[] = [];
     if (args.preferredScanRunId) {
       candidateScanRunIds.push(args.preferredScanRunId);
     }
     const discoveredCandidates = (await ctx.runQuery(
       internal.scans.listRunningWebsiteScanRunsForWorker,
       {},
-    )) as Array<Id<"scanRuns">>;
+    )) as Id<"scanRuns">[];
     for (const scanRunId of discoveredCandidates) {
       if (candidateScanRunIds.includes(scanRunId)) continue;
       candidateScanRunIds.push(scanRunId);
@@ -2779,7 +2916,7 @@ export const claimNextWorkerTask = action({
       const pageIds = (await ctx.runMutation(internal.scans.claimQueuedScanRunPages, {
         scanRunId,
         limit: 1,
-      })) as Array<Id<"scanRunPages">>;
+      })) as Id<"scanRunPages">[];
       const pageRunId: Id<"scanRunPages"> | undefined = pageIds[0];
       if (!pageRunId) continue;
       const processing = (await ctx.runQuery(
@@ -2790,9 +2927,9 @@ export const claimNextWorkerTask = action({
         },
       )) as
         | {
-            scanRun: { assetId: Id<"assets"> };
-            pageRun: { pageUrl: string; createdAt: number };
-          }
+          scanRun: { assetId: Id<"assets"> };
+          pageRun: { pageUrl: string; createdAt: number };
+        }
         | null;
       if (!processing) continue;
       const queueWaitMs = Math.max(0, nowMs() - processing.pageRun.createdAt);
@@ -2830,6 +2967,77 @@ export const createExternalPageScreenshotUploadUrl = action({
     assertScannerWorkerAuthorized(args.workerToken);
     const uploadUrl = await ctx.storage.generateUploadUrl();
     return { uploadUrl };
+  },
+});
+
+export const listBrowserLaunchReplayStepsForPageRun = action({
+  args: {
+    pageRunId: v.id("scanRunPages"),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      seq: v.number(),
+      kind: v.string(),
+      status: v.optional(v.string()),
+      label: v.optional(v.string()),
+      url: v.optional(v.string()),
+      resultSummary: v.optional(v.string()),
+      errorMessage: v.optional(v.string()),
+      screenshotUrl: v.optional(v.string()),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const listRunsForApp = browserLaunchQueries?.listRunsForApp;
+    const listRunSteps = browserLaunchQueries?.listRunSteps;
+    if (!listRunsForApp || !listRunSteps) return [];
+    const runs = (await (
+      ctx.runQuery as unknown as (
+        functionRef: unknown,
+        args: unknown,
+      ) => Promise<unknown>
+    )(listRunsForApp, {
+      app: ADASCOUT_BROWSERLAUNCH_APP,
+      limit: 100,
+    })) as {
+      _id: string;
+      externalRef?: string;
+      createdAt: number;
+    }[];
+    const targetRef = `scanRunPage:${args.pageRunId}`;
+    const run = runs.find((item) => item.externalRef === targetRef);
+    if (!run) return [];
+    const steps = (await (
+      ctx.runQuery as unknown as (
+        functionRef: unknown,
+        args: unknown,
+      ) => Promise<unknown>
+    )(listRunSteps, {
+      runId: run._id,
+      limit: args.limit ?? 200,
+    })) as {
+      seq: number;
+      kind: string;
+      status?: string;
+      label?: string;
+      url?: string;
+      resultSummary?: string;
+      errorMessage?: string;
+      screenshotUrl?: string;
+      createdAt: number;
+    }[];
+    return steps.map((step) => ({
+      seq: step.seq,
+      kind: step.kind,
+      status: step.status,
+      label: step.label,
+      url: step.url,
+      resultSummary: step.resultSummary,
+      errorMessage: step.errorMessage,
+      screenshotUrl: step.screenshotUrl,
+      createdAt: step.createdAt,
+    }));
   },
 });
 
@@ -2892,7 +3100,7 @@ export const submitExternalPageFindings = action({
       scanRunId: args.scanRunId,
       scanRunPageId: args.pageRunId,
       assetId: processing.scanRun.assetId,
-      findings: args.findings as any,
+      findings: args.findings,
     });
     await ctx.runMutation(internal.scans.completeScanRunPage, {
       pageRunId: args.pageRunId,
@@ -2901,6 +3109,23 @@ export const submitExternalPageFindings = action({
       pageScreenshotStorageId: args.pageScreenshotStorageId,
       pageScreenshotCapturedAt: args.pageScreenshotCapturedAt,
     });
+    const replayRunId = await upsertAdascoutReplayRun(
+      ctx,
+      `scanRunPage:${args.pageRunId}`,
+      "page_scan",
+    );
+    if (replayRunId) {
+      await appendAdascoutReplayStep(ctx, {
+        runId: replayRunId,
+        seq: nowMs(),
+        kind: "submit_findings",
+        status: "completed",
+        label: "External page findings submitted",
+        url: processing.pageRun.pageUrl,
+        resultSummary: `findings=${args.findings.length}; latencyMs=${args.extractLatencyMs ?? 0}`,
+        screenshotStorageId: args.pageScreenshotStorageId,
+      });
+    }
     return null;
   },
 });
@@ -2920,6 +3145,21 @@ export const failExternalPageScan = action({
       errorMessage: args.errorMessage,
       errorCategory: args.errorCategory,
     });
+    const replayRunId = await upsertAdascoutReplayRun(
+      ctx,
+      `scanRunPage:${args.pageRunId}`,
+      "page_scan",
+    );
+    if (replayRunId) {
+      await appendAdascoutReplayStep(ctx, {
+        runId: replayRunId,
+        seq: nowMs(),
+        kind: "scan_failed",
+        status: "failed",
+        label: "External page scan failed",
+        errorMessage: args.errorMessage,
+      });
+    }
     return null;
   },
 });
@@ -2947,6 +3187,21 @@ export const submitExternalDiscoveredPages = action({
       assetId: job.assetId,
       pageUrls: args.pageUrls,
     });
+    const replayRunId = await upsertAdascoutReplayRun(
+      ctx,
+      `externalDiscoveryJob:${args.jobId}`,
+      "external_discovery",
+    );
+    if (replayRunId) {
+      await appendAdascoutReplayStep(ctx, {
+        runId: replayRunId,
+        seq: nowMs(),
+        kind: "discovery_completed",
+        status: "completed",
+        label: "External discovery completed",
+        resultSummary: `discoveredUrls=${args.pageUrls.length}`,
+      });
+    }
     return null;
   },
 });
@@ -2964,6 +3219,21 @@ export const failExternalDiscoveryJob = action({
       jobId: args.jobId,
       errorMessage: args.errorMessage,
     });
+    const replayRunId = await upsertAdascoutReplayRun(
+      ctx,
+      `externalDiscoveryJob:${args.jobId}`,
+      "external_discovery",
+    );
+    if (replayRunId) {
+      await appendAdascoutReplayStep(ctx, {
+        runId: replayRunId,
+        seq: nowMs(),
+        kind: "discovery_failed",
+        status: "failed",
+        label: "External discovery failed",
+        errorMessage: args.errorMessage,
+      });
+    }
     return null;
   },
 });
@@ -3132,11 +3402,11 @@ export const backfillDiscoveredPageUniqueness = internalMutation({
       .withIndex("by_asset_createdAt", (q) => q.eq("assetId", args.assetId))
       .order("desc")
       .take(500);
-    const scanRunPages: Array<{
+    const scanRunPages: {
       pageUrl: string;
       normalizedUrl: string;
       updatedAt: number;
-    }> = [];
+    }[] = [];
     for (const run of scanRuns) {
       const pages = await ctx.db
         .query("scanRunPages")
