@@ -366,7 +366,7 @@ export const NavbarLogo = ({ title, subtitle, className }: { title: string; subt
 
 export const NavbarButton = ({
   href,
-  as: Tag = "a",
+  as,
   children,
   className,
   variant = "primary",
@@ -393,9 +393,15 @@ export const NavbarButton = ({
       "bg-gradient-to-b from-blue-500 to-blue-700 text-white shadow-[0px_2px_0px_0px_rgba(255,255,255,0.3)_inset]",
   };
 
+  const Tag = as ?? (href ? "a" : "button");
+  const isAnchor = Tag === "a";
+  const tagProps = isAnchor
+    ? { href: href || undefined }
+    : { type: "button" as const };
+
   return (
     <Tag
-      href={href || undefined}
+      {...tagProps}
       className={cn(baseStyles, variantStyles[variant], className)}
       {...props}
     >
