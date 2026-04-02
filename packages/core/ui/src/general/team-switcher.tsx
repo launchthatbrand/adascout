@@ -84,7 +84,7 @@ export function TeamSwitcher({
   emptyLabel = "No organizations found",
   loadingLabel = "Loading organizations…",
   triggerPlaceholder = DEFAULT_PLACEHOLDER,
-  triggerIconSizeClass = "size-12",
+  triggerIconSizeClass = "size-10",
 }: TeamSwitcherProps) {
   const { isMobile } = useSidebar();
 
@@ -113,7 +113,7 @@ export function TeamSwitcher({
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
-              className="data-[state=open]:bg-sidebar-accent h-auto data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-14! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center disabled:opacity-100"
+              className="data-[state=open]:bg-sidebar-accent h-11 rounded-xl data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-11! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center disabled:opacity-100"
               disabled={isTriggerDisabled}
             >
               <div
