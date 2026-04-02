@@ -28,6 +28,7 @@ type Card = {
   title?: string;
   category?: string;
   content?: React.ReactNode;
+  className?: string;
 };
 
 export const CarouselContext = createContext<{
@@ -158,10 +159,16 @@ export const Card = ({
   card,
   index,
   layout = false,
+  className,
+  onClick,
+  href,
 }: {
   card: Card;
   index: number;
   layout?: boolean;
+  className?: string;
+  onClick?: () => void;
+  href?: string;
 }) => {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -240,33 +247,72 @@ export const Card = ({
           </div>
         )}
       </AnimatePresence>
-      <motion.button
-        layoutId={layout ? `card-${card.title}` : undefined}
-        onClick={handleOpen}
-        className="relative z-10 flex h-80 w-56 flex-col items-start justify-start overflow-hidden rounded-3xl bg-gray-100 md:h-[15rem] md:w-96 dark:bg-neutral-900"
-      >
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-full bg-gradient-to-b from-black/50 via-transparent to-transparent" />
-        <div className="relative z-40 p-8">
-          <motion.p
-            layoutId={layout ? `category-${card.category}` : undefined}
-            className="text-left font-sans text-sm font-medium text-white md:text-base"
-          >
-            {card.category}
-          </motion.p>
-          <motion.p
-            layoutId={layout ? `title-${card.title}` : undefined}
-            className="mt-2 max-w-xs text-left font-sans text-xl font-semibold [text-wrap:balance] text-white md:text-3xl"
-          >
-            {card.title}
-          </motion.p>
-        </div>
-        <BlurImage
-          src={card.src}
-          alt={card.title}
-          fill
-          className="absolute inset-0 z-10 object-cover"
-        />
-      </motion.button>
+      {href ? (
+        <motion.a
+          layoutId={layout ? `card-${card.title}` : undefined}
+          href={href}
+          onClick={onClick}
+          className={cn(
+            "relative z-10 flex h-80 w-56 cursor-pointer flex-col items-start justify-start overflow-hidden rounded-3xl bg-gray-100 md:h-[15rem] md:w-96 dark:bg-neutral-900",
+            className,
+            card.className,
+          )}
+        >
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-full bg-gradient-to-b from-black/50 via-transparent to-transparent" />
+          <div className="relative z-40 p-8">
+            <motion.p
+              layoutId={layout ? `category-${card.category}` : undefined}
+              className="text-left font-sans text-sm font-medium text-white md:text-base"
+            >
+              {card.category}
+            </motion.p>
+            <motion.p
+              layoutId={layout ? `title-${card.title}` : undefined}
+              className="mt-2 max-w-xs text-left font-sans text-xl font-semibold [text-wrap:balance] text-white md:text-3xl"
+            >
+              {card.title}
+            </motion.p>
+          </div>
+          <BlurImage
+            src={card.src}
+            alt={card.title}
+            fill
+            className="absolute inset-0 z-10 object-cover"
+          />
+        </motion.a>
+      ) : (
+        <motion.button
+          layoutId={layout ? `card-${card.title}` : undefined}
+          onClick={onClick ?? handleOpen}
+          className={cn(
+            "relative z-10 flex h-80 w-56 cursor-pointer flex-col items-start justify-start overflow-hidden rounded-3xl bg-gray-100 md:h-[15rem] md:w-96 dark:bg-neutral-900",
+            className,
+            card.className,
+          )}
+        >
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-full bg-gradient-to-b from-black/50 via-transparent to-transparent" />
+          <div className="relative z-40 p-8">
+            <motion.p
+              layoutId={layout ? `category-${card.category}` : undefined}
+              className="text-left font-sans text-sm font-medium text-white md:text-base"
+            >
+              {card.category}
+            </motion.p>
+            <motion.p
+              layoutId={layout ? `title-${card.title}` : undefined}
+              className="mt-2 max-w-xs text-left font-sans text-xl font-semibold [text-wrap:balance] text-white md:text-3xl"
+            >
+              {card.title}
+            </motion.p>
+          </div>
+          <BlurImage
+            src={card.src}
+            alt={card.title}
+            fill
+            className="absolute inset-0 z-10 object-cover"
+          />
+        </motion.button>
+      )}
     </>
   );
 };
