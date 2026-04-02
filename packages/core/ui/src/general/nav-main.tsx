@@ -544,7 +544,7 @@ export function NavMain({
   }, [useTickerLabels]);
 
   return (
-    <SidebarGroup className="mb-20 overflow-y-auto">
+    <SidebarGroup className="mb-10 overflow-y-auto">
       <SidebarGroupContent
         ref={containerRef}
         className="flex flex-col gap-4 overflow-y-auto"
