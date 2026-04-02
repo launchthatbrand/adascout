@@ -407,7 +407,7 @@ export function NavMain({
                       <a
                         href={item.url}
                         onClick={handleNavigate}
-                        className="group/ticker flex flex-1 items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 [&>svg]:size-4 [&>svg]:shrink-0"
+                        className="group/ticker flex flex-1 items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 [&>svg]:size-6 [&>svg]:shrink-0"
                       >
                         {item.icon && <item.icon />}
                         <TickerText
@@ -420,7 +420,7 @@ export function NavMain({
                       <Link
                         href={item.url}
                         onClick={handleNavigate}
-                        className="group/ticker flex flex-1 items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 [&>svg]:size-4 [&>svg]:shrink-0"
+                        className="group/ticker flex flex-1 items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 [&>svg]:size-6 [&>svg]:shrink-0"
                       >
                         {item.icon && <item.icon />}
                         <TickerText
