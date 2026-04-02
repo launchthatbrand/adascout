@@ -62,6 +62,9 @@ interface NavMainProps {
   subitemScrollOnPathChange?: "none" | "if-needed" | "center";
 }
 
+const NAV_BUTTON_CLASS =
+  "h-11 rounded-xl text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[active=true]:bg-blue-500/35 data-[active=true]:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-11! [&>svg]:size-6!";
+
 const TickerText = ({
   text,
   enabled,
@@ -396,6 +399,7 @@ export function NavMain({
                   <SidebarMenuButton
                     isActive={isCurrentActive}
                     tooltip={item.title}
+                    className={NAV_BUTTON_CLASS}
                     data-nav-active={isCurrentActive ? "true" : undefined}
                     data-nav-exact={itemActive ? "true" : undefined}
                   >
@@ -403,30 +407,30 @@ export function NavMain({
                       <a
                         href={item.url}
                         onClick={handleNavigate}
-                        className="group/ticker flex flex-1 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0"
+                        className="group/ticker flex flex-1 items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 [&>svg]:size-4 [&>svg]:shrink-0"
                       >
                         {item.icon && <item.icon />}
                         <TickerText
                           enabled={useTickerLabels}
                           text={item.title}
-                          className="flex-1"
+                          className="flex-1 group-data-[collapsible=icon]:hidden"
                         />
                       </a>
                     ) : (
                       <Link
                         href={item.url}
                         onClick={handleNavigate}
-                        className="group/ticker flex flex-1 items-center gap-2 [&>svg]:size-4 [&>svg]:shrink-0"
+                        className="group/ticker flex flex-1 items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 [&>svg]:size-4 [&>svg]:shrink-0"
                       >
                         {item.icon && <item.icon />}
                         <TickerText
                           enabled={useTickerLabels}
                           text={item.title}
-                          className="flex-1"
+                          className="flex-1 group-data-[collapsible=icon]:hidden"
                         />
                       </Link>
                     )}
-                    <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                    <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
@@ -476,7 +480,10 @@ export function NavMain({
             <SidebarMenuButton
               tooltip={item.title}
               asChild
-              className={cn(itemActive && "bg-accent text-accent-foreground")}
+              className={cn(
+                NAV_BUTTON_CLASS,
+                itemActive && "bg-accent text-accent-foreground",
+              )}
               data-nav-active={itemActive ? "true" : undefined}
               data-nav-exact={itemActive ? "true" : undefined}
             >
@@ -484,26 +491,26 @@ export function NavMain({
                 <a
                   href={item.url}
                   onClick={handleNavigate}
-                  className="group/ticker flex min-w-0 items-center gap-2"
+                  className="group/ticker flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0"
                 >
                   {item.icon && <item.icon />}
                   <TickerText
                     enabled={useTickerLabels}
                     text={item.title}
-                    className="flex-1"
+                    className="flex-1 group-data-[collapsible=icon]:hidden"
                   />
                 </a>
               ) : (
                 <Link
                   href={item.url}
                   onClick={handleNavigate}
-                  className="group/ticker flex min-w-0 items-center gap-2"
+                  className="group/ticker flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0"
                 >
                   {item.icon && <item.icon />}
                   <TickerText
                     enabled={useTickerLabels}
                     text={item.title}
-                    className="flex-1"
+                    className="flex-1 group-data-[collapsible=icon]:hidden"
                   />
                 </Link>
               )}

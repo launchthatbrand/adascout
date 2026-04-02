@@ -93,9 +93,9 @@ export function NavUser({
         </AvatarFallback>
       </Avatar>
       <div className="hidden flex-1 text-left text-sm leading-tight md:grid">
-        <span className="truncate font-semibold text-black">{displayName}</span>
+        <span className="text-foreground truncate font-semibold">{displayName}</span>
       </div>
-      <ChevronsUpDown className="ml-auto size-4 text-black/70" />
+      <ChevronsUpDown className="text-muted-foreground ml-auto size-4" />
     </SidebarMenuButton>
   );
 
@@ -120,7 +120,7 @@ export function NavUser({
                         {displayName}
                       </span>
                       {email ? (
-                        <span className="truncate text-xs text-black/70">
+                        <span className="text-muted-foreground truncate text-xs">
                           {email}
                         </span>
                       ) : null}
@@ -188,7 +188,7 @@ export function NavUser({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg border border-white/10 bg-linear-to-r from-pink-500/30 to-purple-500/30 text-black backdrop-blur-xl"
+            className="text-foreground w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg border border-white/10 bg-linear-to-r from-pink-500/30 to-purple-500/30 backdrop-blur-xl"
             side={isMobile ? "bottom" : "bottom"}
             align="end"
             sideOffset={4}
