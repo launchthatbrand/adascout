@@ -37,7 +37,9 @@ export * from "./theme";
 export * from "./entity-list";
 export * from "./json-view";
 export * from "./animated-tooltip";
+export * from "./animated-beam";
 export * from "./animated-list";
+export * from "./code-comparison";
 export * from "./animated-theme-toggler";
 export * from "./iphone-mock";
 export * from "./noise-background";
@@ -80,3 +82,5 @@ export {
   Carousel,
   Card as AppleCarouselCard,
 } from "./components/ui/apple-cards-carousel";
+export * from "./components/ui/3d-marquee";
+export * from "./components/3d-marquee-demo";
