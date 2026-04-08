@@ -73,3 +73,7 @@ export * from "./retro-grid";
 export * from "./aurora-text";
 export * from "./components/ui/resizable-navbar";
 export * from "./rainbow-button";
+export {
+  Carousel,
+  Card as AppleCarouselCard,
+} from "./components/ui/apple-cards-carousel";
