@@ -19,7 +19,7 @@ import { cn } from "../../lib/utils";
 import { useOutsideClick } from "../../hooks/use-outside-click";
 
 interface CarouselProps {
-  items: JSX.Element[];
+  items: React.ReactElement[];
   initialScroll?: number;
 }
 
@@ -194,7 +194,9 @@ export const Card = ({
     };
   }, [open]);
 
-  useOutsideClick(containerRef, () => handleClose());
+  useOutsideClick(containerRef as React.RefObject<HTMLDivElement>, () =>
+    handleClose(),
+  );
 
   const handleOpen = () => {
     setOpen(true);
@@ -274,8 +276,8 @@ export const Card = ({
             </motion.p>
           </div>
           <BlurImage
-            src={card.src}
-            alt={card.title}
+            src={card.src ?? ""}
+            alt={card.title ?? "Card image"}
             fill
             className="absolute inset-0 z-10 object-cover"
           />
@@ -306,8 +308,8 @@ export const Card = ({
             </motion.p>
           </div>
           <BlurImage
-            src={card.src}
-            alt={card.title}
+            src={card.src ?? ""}
+            alt={card.title ?? "Card image"}
             fill
             className="absolute inset-0 z-10 object-cover"
           />
