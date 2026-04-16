@@ -72,19 +72,24 @@ export const Navbar = ({
 }: NavbarProps) => {
   const ref = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const [hasResolvedScrollContainer, setHasResolvedScrollContainer] = useState(false);
   const [visible, setVisible] = useState<boolean>(false);
 
   useEffect(() => {
     if (scrollContainer === "window") {
       scrollContainerRef.current = null;
+      setHasResolvedScrollContainer(false);
       return;
     }
     const el = document.querySelector<HTMLElement>(scrollContainer);
     scrollContainerRef.current = el;
+    setHasResolvedScrollContainer(Boolean(el));
   }, [scrollContainer]);
 
   const { scrollY } = useScroll({
-    container: scrollContainerRef as React.RefObject<HTMLElement>,
+    container: hasResolvedScrollContainer
+      ? (scrollContainerRef as React.RefObject<HTMLElement>)
+      : undefined,
   });
 
   useMotionValueEvent(scrollY, "change", (latest) => {
