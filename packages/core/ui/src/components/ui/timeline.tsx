@@ -26,6 +26,7 @@ export const Timeline = ({
   const ref = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const [hasResolvedScrollContainer, setHasResolvedScrollContainer] = useState(false);
   const [height, setHeight] = useState(0);
 
   useEffect(() => {
@@ -52,6 +53,14 @@ export const Timeline = ({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const nearestLayoutContainer =
+      containerRef.current.closest<HTMLElement>("[data-layout-scroll-container]");
+    if (nearestLayoutContainer) {
+      scrollContainerRef.current = nearestLayoutContainer;
+      setHasResolvedScrollContainer(true);
+      return;
+    }
+
     let element: HTMLElement | null = containerRef.current.parentElement;
     while (element) {
       const styles = window.getComputedStyle(element);
@@ -61,16 +70,20 @@ export const Timeline = ({
         element.scrollHeight > element.clientHeight;
       if (isScrollable) {
         scrollContainerRef.current = element;
+        setHasResolvedScrollContainer(true);
         return;
       }
       element = element.parentElement;
     }
 
     scrollContainerRef.current = null;
+    setHasResolvedScrollContainer(false);
   }, []);
 
   const { scrollYProgress } = useScroll({
-    container: scrollContainerRef,
+    container: hasResolvedScrollContainer
+      ? (scrollContainerRef as React.RefObject<HTMLElement>)
+      : undefined,
     target: containerRef,
     offset: ["start 60%", "end 50%"],
   });
