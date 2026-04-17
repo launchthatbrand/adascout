@@ -337,14 +337,16 @@ export const MobileNavMenu = ({
 export const MobileNavToggle = ({
   isOpen,
   onClick,
+  className,
 }: {
   isOpen: boolean;
   onClick: () => void;
+  className?: string;
 }) => {
   return isOpen ? (
-    <IconX className="text-black dark:text-white" onClick={onClick} />
+    <IconX className={cn("text-black dark:text-white", className)} onClick={onClick} />
   ) : (
-    <IconMenu2 className="text-black dark:text-white" onClick={onClick} />
+    <IconMenu2 className={cn("text-black dark:text-white", className)} onClick={onClick} />
   );
 };
 
