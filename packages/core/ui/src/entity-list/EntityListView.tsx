@@ -371,7 +371,7 @@ export function EntityListView<T extends Record<string, unknown>>({
         ) : null}
         <div
           ref={virtualScrollRef}
-          className="w-full max-w-full overflow-x-auto overflow-y-visible overscroll-x-contain rounded-md border touch-pan-x [-webkit-overflow-scrolling:touch] md:max-h-[70vh] md:overflow-auto md:overscroll-y-contain"
+          className="w-full max-w-full overflow-x-auto overflow-y-visible overscroll-x-contain rounded-md border touch-pan-x [-webkit-overflow-scrolling:touch] md:max-h-[85vh] md:overflow-auto md:overscroll-y-contain"
           onScroll={(event) => {
             if (!useVirtualRows) return;
             setVirtualScrollTop(event.currentTarget.scrollTop);
