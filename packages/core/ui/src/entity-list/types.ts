@@ -241,6 +241,12 @@ export interface EntityListProps<T extends Record<string, unknown>> {
   /** Initial sort configuration (optional) */
   initialSort?: SortConfig;
 
+  /** Initial number of rows per page when pagination footer is enabled (default: 20) */
+  initialPageSize?: number;
+
+  /** Always render a compact record-count line above and below the table, independent of pagination. */
+  showRowCount?: boolean;
+
   /** Hide the built-in filters section (default: false) */
   hideFilters?: boolean;
 
@@ -384,6 +390,12 @@ export interface EntityListViewProps<T extends Record<string, unknown>> {
     selectedItems: T[];
     clearSelection: () => void;
   }) => ReactNode;
+
+  /** Initial number of rows per page (default: 20). Ignored when enableFooter is false. */
+  initialPageSize?: number;
+
+  /** Always render a compact record-count line above and below the table, independent of pagination. */
+  showRowCount?: boolean;
 }
 
 /**

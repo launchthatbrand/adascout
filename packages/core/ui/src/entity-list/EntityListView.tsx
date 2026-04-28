@@ -86,6 +86,8 @@ export function EntityListView<T extends Record<string, unknown>>({
   virtualOverscan = 8,
   getRowId,
   bulkActions,
+  initialPageSize = 20,
+  showRowCount = false,
 }: EntityListViewProps<T>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -236,7 +238,7 @@ export function EntityListView<T extends Record<string, unknown>>({
     initialState: enableFooter
       ? {
         pagination: {
-          pageSize: 20,
+          pageSize: initialPageSize,
         },
       }
       : undefined,
@@ -359,8 +361,18 @@ export function EntityListView<T extends Record<string, unknown>>({
       ? Math.max(tableRows.length - endIndex, 0) * safeRowHeight
       : 0;
 
+    const totalRows = table.getFilteredRowModel().rows.length;
+    const pageRows = enableFooter ? table.getRowModel().rows.length : totalRows;
+
     return (
       <div className="min-w-0 w-full max-w-full">
+        {showRowCount ? (
+          <p className="text-muted-foreground mb-1.5 text-xs">
+            {enableFooter && pageRows < totalRows
+              ? `Showing ${pageRows} of ${totalRows} records`
+              : `${totalRows} record${totalRows === 1 ? "" : "s"}`}
+          </p>
+        ) : null}
         {enableRowSelection && selectedItems.length > 0 && bulkActions ? (
           <div className="bg-muted/40 border-input mb-3 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
             {bulkActions({
@@ -463,6 +475,11 @@ export function EntityListView<T extends Record<string, unknown>>({
           </Table>
         </div>
         {enableFooter && <EntityListFooter table={table} />}
+        {showRowCount && !enableFooter ? (
+          <p className="text-muted-foreground mt-1.5 text-xs">
+            {totalRows} record{totalRows === 1 ? "" : "s"}
+          </p>
+        ) : null}
       </div>
     );
   }
