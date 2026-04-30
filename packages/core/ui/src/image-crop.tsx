@@ -9,7 +9,7 @@ import ReactCrop, {
   type PixelCrop,
 } from "react-image-crop"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@acme/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@launchthatapp/ui/avatar"
 import { Button } from "./button"
 import {
   Dialog,
@@ -20,7 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@acme/ui/dialog"
+} from "@launchthatapp/ui/dialog"
 
 import "react-image-crop/dist/ReactCrop.css"
 

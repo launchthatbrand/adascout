@@ -8,8 +8,8 @@ import { api } from "@/convex/_generated/api";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ArrowLeft, FileText, Globe, Search, Scan } from "lucide-react";
 
-import { cn } from "@acme/ui";
-import { Button } from "@acme/ui/button";
+import { cn } from "@launchthatapp/ui";
+import { Button } from "@launchthatapp/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@acme/ui/dialog";
+} from "@launchthatapp/ui/dialog";
 
 const tabs = [
   { href: "/admin/assets/[assetId]", label: "Overview" },

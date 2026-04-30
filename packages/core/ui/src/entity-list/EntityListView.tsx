@@ -17,7 +17,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@acme/ui/table";
+} from "@launchthatapp/ui/table";
 import {
   Table as TanstackTable,
   flexRender,
@@ -29,12 +29,12 @@ import {
 } from "@tanstack/react-table";
 
 import { ArrowUpDown } from "lucide-react";
-import { Button } from "@acme/ui/button";
-import { Checkbox } from "@acme/ui/checkbox";
+import { Button } from "@launchthatapp/ui/button";
+import { Checkbox } from "@launchthatapp/ui/checkbox";
 import { EmptyState } from "./EmptyState";
 import { GridView } from "./GridView";
 import { Loader2 } from "lucide-react";
-import { Skeleton } from "@acme/ui/skeleton";
+import { Skeleton } from "@launchthatapp/ui/skeleton";
 
 type LegacyCellRenderer<T extends Record<string, unknown>> = (context: {
   row: Row<T>;

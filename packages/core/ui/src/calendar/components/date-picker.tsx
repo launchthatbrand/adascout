@@ -15,17 +15,17 @@ import {
 } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 
-import type { CalendarProps } from "@acme/ui/calendar";
-import { Button, buttonVariants } from "@acme/ui/button";
-import { Input } from "@acme/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@acme/ui/popover";
+import type { CalendarProps } from "@launchthatapp/ui/calendar";
+import { Button, buttonVariants } from "@launchthatapp/ui/button";
+import { Input } from "@launchthatapp/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@launchthatapp/ui/popover";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@acme/ui/select";
+} from "@launchthatapp/ui/select";
 
 // ---------- utils start ----------
 /**

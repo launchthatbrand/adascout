@@ -2,8 +2,8 @@
 
 import { X } from "lucide-react";
 
-import { Badge } from "@acme/ui/badge";
-import { Button } from "@acme/ui/button";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Button } from "@launchthatapp/ui/button";
 
 export interface FilterChipProps {
   /** Filter label to display */

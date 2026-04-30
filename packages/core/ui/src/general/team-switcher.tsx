@@ -18,13 +18,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from "@acme/ui/dropdown-menu";
+} from "@launchthatapp/ui/dropdown-menu";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@acme/ui/sidebar";
+} from "@launchthatapp/ui/sidebar";
 
 import Link from "next/link";
 

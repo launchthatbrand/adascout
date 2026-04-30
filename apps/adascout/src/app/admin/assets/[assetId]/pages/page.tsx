@@ -7,10 +7,10 @@ import { useParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 
-import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { Badge } from "@acme/ui/badge";
-import { Button } from "@acme/ui/button";
-import { EntityList } from "@acme/ui/entity-list";
+import type { ColumnDefinition } from "@launchthatapp/ui/entity-list";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Button } from "@launchthatapp/ui/button";
+import { EntityList } from "@launchthatapp/ui/entity-list";
 
 type PageRow = Record<string, unknown> & {
   id: string;

@@ -5,10 +5,10 @@ import { CalendarIcon } from "@radix-ui/react-icons"
 import { format } from "date-fns";
 
 import { cn } from "./lib/utils";
-import { Button } from "@acme/ui/button";
-import { Calendar } from "@acme/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@acme/ui/popover";
-import { ScrollArea, ScrollBar } from "@acme/ui/scroll-area";
+import { Button } from "@launchthatapp/ui/button";
+import { Calendar } from "@launchthatapp/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@launchthatapp/ui/popover";
+import { ScrollArea, ScrollBar } from "@launchthatapp/ui/scroll-area";
 
 interface DateTimePickerProps {
   value?: Date;

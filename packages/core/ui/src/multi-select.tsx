@@ -15,12 +15,12 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
-} from "@acme/ui";
-import { Popover, PopoverContent, PopoverTrigger } from "@acme/ui/popover";
+} from "@launchthatapp/ui";
+import { Popover, PopoverContent, PopoverTrigger } from "@launchthatapp/ui/popover";
 
-import { Badge } from "@acme/ui/badge";
-import { Button } from "@acme/ui/button";
-import { Separator } from "@acme/ui/separator";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Button } from "@launchthatapp/ui/button";
+import { Separator } from "@launchthatapp/ui/separator";
 // src/components/multi-select.tsx
 import type { VariantProps } from "class-variance-authority";
 import { cn } from "./lib/utils";

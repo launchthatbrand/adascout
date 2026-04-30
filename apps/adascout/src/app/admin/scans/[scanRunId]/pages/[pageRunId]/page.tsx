@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "convex/react";
-import { Badge } from "@acme/ui/badge";
-import { Button } from "@acme/ui/button";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Button } from "@launchthatapp/ui/button";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 

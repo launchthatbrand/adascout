@@ -17,8 +17,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@acme/ui/alert-dialog";
-import { Button } from "@acme/ui/button";
+} from "@launchthatapp/ui/alert-dialog";
+import { Button } from "@launchthatapp/ui/button";
 import {
   Form,
   FormControl,
@@ -26,8 +26,8 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@acme/ui/form";
-import { Input } from "@acme/ui/input";
+} from "@launchthatapp/ui/form";
+import { Input } from "@launchthatapp/ui/input";
 
 import { useEvents } from "../context/events-context";
 import { DateTimePicker } from "./date-picker";

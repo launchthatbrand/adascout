@@ -8,9 +8,9 @@ import {
   Scan,
 } from "lucide-react";
 
-import { Badge } from "@acme/ui/badge";
-import { Button } from "@acme/ui/button";
-import { Card } from "@acme/ui/card";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Button } from "@launchthatapp/ui/button";
+import { Card } from "@launchthatapp/ui/card";
 import type { Id } from "@/convex/_generated/dataModel";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";

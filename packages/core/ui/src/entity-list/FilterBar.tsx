@@ -2,7 +2,7 @@
 
 import { X } from "lucide-react";
 
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 
 import { FilterChip } from "./FilterChip";
 

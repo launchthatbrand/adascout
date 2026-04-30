@@ -7,9 +7,9 @@ import { useParams, useRouter } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 
-import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { Button } from "@acme/ui/button";
-import { EntityList } from "@acme/ui/entity-list";
+import type { ColumnDefinition } from "@launchthatapp/ui/entity-list";
+import { Button } from "@launchthatapp/ui/button";
+import { EntityList } from "@launchthatapp/ui/entity-list";
 
 const PDF_IMAGE_RULE_IDS = new Set<string>([
   "pdf.image.text_detected_low_contrast",

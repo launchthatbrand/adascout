@@ -7,7 +7,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@acme/ui/alert-dialog";
+} from "@launchthatapp/ui/alert-dialog";
 
 import type { CalendarEvent } from "../utils/data";
 import { useEvents } from "../context/events-context";

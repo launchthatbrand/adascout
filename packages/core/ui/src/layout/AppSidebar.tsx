@@ -7,7 +7,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-} from "@acme/ui/sidebar";
+} from "@launchthatapp/ui/sidebar";
 
 import React from "react";
 

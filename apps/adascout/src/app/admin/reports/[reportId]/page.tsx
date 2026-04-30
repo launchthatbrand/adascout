@@ -5,10 +5,10 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { useMutation, useQuery } from "convex/react";
 import ExcelJS from "exceljs";
 import { BuilderDndProvider, SortableList } from "@acme/dnd";
-import { Button } from "@acme/ui/button";
-import { Badge } from "@acme/ui/badge";
-import { Input } from "@acme/ui/input";
-import { Label } from "@acme/ui/label";
+import { Button } from "@launchthatapp/ui/button";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Input } from "@launchthatapp/ui/input";
+import { Label } from "@launchthatapp/ui/label";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 

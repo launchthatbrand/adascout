@@ -16,7 +16,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@acme/ui/sidebar";
+} from "@launchthatapp/ui/sidebar";
 
 import Image from "next/image";
 import Link from "next/link";

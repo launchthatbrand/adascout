@@ -14,7 +14,7 @@ import { IconLayoutNavbarCollapse } from "@tabler/icons-react";
 import Link from "next/link";
 /* eslint-disable prefer-const */
 import type { MotionValue } from "motion/react";
-import { cn } from "@acme/ui";
+import { cn } from "@launchthatapp/ui";
 
 type DockItem = {
   href: string;

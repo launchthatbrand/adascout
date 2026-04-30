@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { EntityList } from "@acme/ui/entity-list";
-import { Button } from "@acme/ui/button";
-import { Input } from "@acme/ui/input";
-import { Label } from "@acme/ui/label";
+import type { ColumnDefinition } from "@launchthatapp/ui/entity-list";
+import { EntityList } from "@launchthatapp/ui/entity-list";
+import { Button } from "@launchthatapp/ui/button";
+import { Input } from "@launchthatapp/ui/input";
+import { Label } from "@launchthatapp/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -16,8 +16,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@acme/ui/dialog";
-import { Badge } from "@acme/ui/badge";
+} from "@launchthatapp/ui/dialog";
+import { Badge } from "@launchthatapp/ui/badge";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 

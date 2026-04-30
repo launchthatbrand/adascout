@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@acme/ui/alert-dialog";
+} from "@launchthatapp/ui/alert-dialog";
 import {
   Form,
   FormControl,
@@ -24,8 +24,8 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@acme/ui/form";
-import { Input } from "@acme/ui/input";
+} from "@launchthatapp/ui/form";
+import { Input } from "@launchthatapp/ui/input";
 
 import type { CalendarEvent } from "../utils/data";
 import { useEvents } from "../context/events-context";

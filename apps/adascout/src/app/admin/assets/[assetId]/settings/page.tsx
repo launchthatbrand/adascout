@@ -7,9 +7,9 @@ import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 import { CheckCircle, Link2, RefreshCw, Trash2 } from "lucide-react";
 
-import { Button } from "@acme/ui/button";
-import { Input } from "@acme/ui/input";
-import { Label } from "@acme/ui/label";
+import { Button } from "@launchthatapp/ui/button";
+import { Input } from "@launchthatapp/ui/input";
+import { Label } from "@launchthatapp/ui/label";
 
 export default function AssetSettingsPage() {
   const params = useParams();

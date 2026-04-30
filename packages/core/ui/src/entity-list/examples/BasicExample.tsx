@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Edit, Trash } from "lucide-react";
 
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 
 import type { ColumnDefinition, EntityAction, FilterConfig } from "../types";
 import { EntityList } from "../EntityList";

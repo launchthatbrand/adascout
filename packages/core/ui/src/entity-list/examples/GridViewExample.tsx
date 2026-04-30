@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { Edit, Star, Trash } from "lucide-react";
 
-import { Badge } from "@acme/ui/badge";
-import { Button } from "@acme/ui/button";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Button } from "@launchthatapp/ui/button";
 
 import type { ColumnDefinition, EntityAction } from "../types";
 import { GridView } from "../GridView";

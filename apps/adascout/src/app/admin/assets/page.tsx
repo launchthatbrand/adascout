@@ -6,8 +6,8 @@ import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 
-import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { Button } from "@acme/ui/button";
+import type { ColumnDefinition } from "@launchthatapp/ui/entity-list";
+import { Button } from "@launchthatapp/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -15,10 +15,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@acme/ui/dialog";
-import { EntityList } from "@acme/ui/entity-list";
-import { Input } from "@acme/ui/input";
-import { Label } from "@acme/ui/label";
+} from "@launchthatapp/ui/dialog";
+import { EntityList } from "@launchthatapp/ui/entity-list";
+import { Input } from "@launchthatapp/ui/input";
+import { Label } from "@launchthatapp/ui/label";
 
 type AssetRow = Record<string, unknown> & {
   id: string;

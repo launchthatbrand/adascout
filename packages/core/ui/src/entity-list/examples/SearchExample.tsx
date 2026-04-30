@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@acme/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@launchthatapp/ui/card";
 
 import { Search } from "../Search";
 
