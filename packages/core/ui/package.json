@@ -21,6 +21,7 @@
     "./separator": "./src/separator.tsx",
     "./theme": "./src/theme.tsx",
     "./toast": "./src/toast.tsx",
+    "./hooks/use-media-query": "./src/hooks/use-media-query.ts",
     "./hooks/*": "./src/hooks/*.tsx",
     "./general/*": "./src/general/*.tsx",
     "./general": "./src/general/index.ts",
