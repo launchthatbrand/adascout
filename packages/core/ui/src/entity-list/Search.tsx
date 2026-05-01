@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Search as SearchIcon, X } from "lucide-react";
 
-import { Button } from "@acme/ui/button";
-import { Input } from "@acme/ui/input";
+import { Button } from "@launchthatapp/ui/button";
+import { Input } from "@launchthatapp/ui/input";
 
 import { Spinner } from "../spinner";
 

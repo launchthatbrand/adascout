@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { Button } from "@acme/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@acme/ui/card";
+import { Button } from "@launchthatapp/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@launchthatapp/ui/card";
 
 import { FilterBar } from "../../FilterBar";
 import { FilterConfig } from "../config";

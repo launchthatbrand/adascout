@@ -8,22 +8,22 @@ import { PanelLeftIcon } from "lucide-react"
 import { useIsMobile } from "../hooks/use-mobile"
 import { cn } from "./lib/utils"
 import { Button } from "./button"
-import { Input } from "@acme/ui/input"
-import { Separator } from "@acme/ui/separator"
+import { Input } from "@launchthatapp/ui/input"
+import { Separator } from "@launchthatapp/ui/separator"
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@acme/ui/sheet"
-import { Skeleton } from "@acme/ui/skeleton"
+} from "@launchthatapp/ui/sheet"
+import { Skeleton } from "@launchthatapp/ui/skeleton"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@acme/ui/tooltip"
+} from "@launchthatapp/ui/tooltip"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7

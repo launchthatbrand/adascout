@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { PlusCircle } from "lucide-react";
 
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 
 import type { ColumnDefinition, FilterConfig, FilterValue } from "../types";
 import { EntityList } from "../EntityList";
@@ -211,7 +211,7 @@ export default function MigrationExample() {
         <ol className="ml-6 list-decimal space-y-2 text-sm text-gray-700">
           <li>
             Import the EntityList from "../EntityList" instead of
-            "@acme/ui/advanced/entity-list"
+            "@launchthatapp/ui/advanced/entity-list"
           </li>
           <li>
             Define column configurations with header, accessorKey, and cell

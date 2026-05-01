@@ -10,7 +10,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
-} from "@acme/ui/sidebar";
+} from "@launchthatapp/ui/sidebar";
 
 import { Avatar, AvatarFallback, AvatarImage } from "../avatar";
 import { Drawer, DrawerClose, DrawerContent, DrawerTrigger } from "../drawer";

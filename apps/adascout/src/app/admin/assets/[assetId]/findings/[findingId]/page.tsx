@@ -6,8 +6,8 @@ import { useParams, useSearchParams } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { useMutation, useQuery } from "convex/react";
 
-import { Badge } from "@acme/ui/badge";
-import { Button } from "@acme/ui/button";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Button } from "@launchthatapp/ui/button";
 
 export default function FindingDetailPage() {
   const params = useParams();

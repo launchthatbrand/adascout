@@ -11,8 +11,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@acme/ui/alert-dialog";
-import { Button } from "@acme/ui/button";
+} from "@launchthatapp/ui/alert-dialog";
+import { Button } from "@launchthatapp/ui/button";
 
 import { useEvents } from "../context/events-context";
 import { ToastAction } from "./ui/toast";

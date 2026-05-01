@@ -5,8 +5,8 @@ import { ColumnDef } from "@tanstack/react-table";
 import { clsx } from "clsx";
 import { AlertCircle } from "lucide-react";
 
-import { Alert, AlertDescription, AlertTitle } from "@acme/ui/alert";
-import { Tabs, TabsList, TabsTrigger } from "@acme/ui/tabs";
+import { Alert, AlertDescription, AlertTitle } from "@launchthatapp/ui/alert";
+import { Tabs, TabsList, TabsTrigger } from "@launchthatapp/ui/tabs";
 
 import type {
   ColumnDefinition,

@@ -1,6 +1,6 @@
-import { AnimatedThemeToggler, Separator } from "@acme/ui";
+import { AnimatedThemeToggler, Separator } from "@launchthatapp/ui";
 
-import AppHeader from "@acme/ui/layout/AppHeader";
+import AppHeader from "@launchthatapp/ui/layout/AppHeader";
 import Image from "next/image";
 import Link from "next/link";
 

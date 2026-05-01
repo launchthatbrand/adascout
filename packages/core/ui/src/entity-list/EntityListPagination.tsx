@@ -7,14 +7,14 @@ import {
   ChevronsRight,
 } from "lucide-react";
 
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@acme/ui/select";
+} from "@launchthatapp/ui/select";
 
 import type { EntityListPaginationProps } from "./types";
 

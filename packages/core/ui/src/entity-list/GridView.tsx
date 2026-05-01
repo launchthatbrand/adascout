@@ -3,9 +3,9 @@
 import type { MouseEvent, ReactElement } from "react";
 import { cloneElement, isValidElement, useMemo } from "react";
 
-import { Button } from "@acme/ui/button";
-import { Card, CardContent, CardFooter, CardHeader } from "@acme/ui/card";
-import { Checkbox } from "@acme/ui/checkbox";
+import { Button } from "@launchthatapp/ui/button";
+import { Card, CardContent, CardFooter, CardHeader } from "@launchthatapp/ui/card";
+import { Checkbox } from "@launchthatapp/ui/checkbox";
 
 import type { ColumnDefinition, EntityAction } from "./types";
 

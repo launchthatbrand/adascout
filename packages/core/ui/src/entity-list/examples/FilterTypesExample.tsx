@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@acme/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@acme/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@launchthatapp/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@launchthatapp/ui/tabs";
 
 import {
   BaseFilterProps,

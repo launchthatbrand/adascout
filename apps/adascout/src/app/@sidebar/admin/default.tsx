@@ -20,7 +20,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@acme/ui/sidebar";
+} from "@launchthatapp/ui/sidebar";
 
 const NAV_ICON_CLASS =
   "text-sidebar-foreground/70 transition-colors group-hover/menu-button:text-sidebar-foreground group-data-[active=true]/menu-button:text-blue-600 dark:group-data-[active=true]/menu-button:text-blue-400";

@@ -2,10 +2,10 @@
 
 import { LayoutGrid, List, Rows } from "lucide-react";
 
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 import type { EntityListHeaderProps } from "./types";
 import { Search } from "./Search";
-import { cn } from "@acme/ui";
+import { cn } from "@launchthatapp/ui";
 
 export function EntityListHeader({
   title,

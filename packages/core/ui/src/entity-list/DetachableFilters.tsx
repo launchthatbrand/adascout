@@ -3,17 +3,17 @@
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 
-import { Badge } from "@acme/ui/badge";
-import { Button } from "@acme/ui/button";
+import { Badge } from "@launchthatapp/ui/badge";
+import { Button } from "@launchthatapp/ui/button";
 import {
   Command,
   CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
-} from "@acme/ui/command";
-import { Input } from "@acme/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@acme/ui/popover";
+} from "@launchthatapp/ui/command";
+import { Input } from "@launchthatapp/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@launchthatapp/ui/popover";
 
 import type { FilterConfig, FilterValue } from "./types";
 

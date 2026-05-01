@@ -4,14 +4,14 @@ import React, { useEffect, useMemo, useState } from "react";
 import Script from "next/script";
 import { DateTime, Duration, Interval } from "luxon";
 
-import { Calendar } from "@acme/ui/calendar";
+import { Calendar } from "@launchthatapp/ui/calendar";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@acme/ui/select";
+} from "@launchthatapp/ui/select";
 
 import type { CalendarEvent } from "../utils/data";
 import { useEvents } from "../context/events-context";

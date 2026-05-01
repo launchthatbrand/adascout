@@ -14,7 +14,7 @@ import {
   NavBody,
   NavItems,
   Separator,
-} from "@acme/ui";
+} from "@launchthatapp/ui";
 
 interface NavItem {
   name: string;

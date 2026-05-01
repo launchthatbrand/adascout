@@ -1,13 +1,13 @@
 "use client";
 
-import { Input } from "@acme/ui/input";
+import { Input } from "@launchthatapp/ui/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@acme/ui/select";
+} from "@launchthatapp/ui/select";
 
 import {
   BaseFilterProps,

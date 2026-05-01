@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Toaster } from "@acme/ui/toaster";
+import { Toaster } from "@launchthatapp/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 import Footer from "@/components/footer";

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "../../lib/utils";
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -21,10 +21,10 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@acme/ui/command";
-import { Input } from "@acme/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@acme/ui/popover";
-import { Tabs, TabsList, TabsTrigger } from "@acme/ui/tabs";
+} from "@launchthatapp/ui/command";
+import { Input } from "@launchthatapp/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@launchthatapp/ui/popover";
+import { Tabs, TabsList, TabsTrigger } from "@launchthatapp/ui/tabs";
 
 import type { calendarRef } from "../utils/data";
 import {

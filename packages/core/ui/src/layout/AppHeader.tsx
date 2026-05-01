@@ -5,7 +5,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Logo } from "../general/Logo";
 import { Separator } from "../separator";
-import { SidebarTrigger } from "@acme/ui/sidebar";
+import { SidebarTrigger } from "@launchthatapp/ui/sidebar";
 import { cn } from "../lib/utils";
 
 const SidebarTriggerWrapper = ({ className }: { className?: string }) => {

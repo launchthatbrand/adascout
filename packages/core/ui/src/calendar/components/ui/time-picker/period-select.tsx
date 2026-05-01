@@ -8,7 +8,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@acme/ui/select";
+} from "@launchthatapp/ui/select";
 
 import type { Period } from "./time-picker-utils";
 import { display12HourValue, setDateByType } from "./time-picker-utils";

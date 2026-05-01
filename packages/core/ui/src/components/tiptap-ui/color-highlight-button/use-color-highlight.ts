@@ -5,7 +5,7 @@ import { type Editor } from "@tiptap/react"
 import { useHotkeys } from "react-hotkeys-hook"
 
 // Ensure the `nodeBackground` command typings are included in any TS program that
-// imports this hook. (Without this, downstream packages that typecheck @acme/ui
+// imports this hook. (Without this, downstream packages that typecheck @launchthatapp/ui
 // via source imports may not include the extension file, so TS won't see the
 // module augmentation for `toggleNodeBackgroundColor` / `unsetNodeBackgroundColor`.)
 import "../../tiptap-extension/node-background-extension"

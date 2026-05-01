@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 import {
   Globe,
   Scan,

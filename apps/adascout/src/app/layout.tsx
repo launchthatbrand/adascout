@@ -5,10 +5,10 @@ import { Geist } from "next/font/google";
 import { headers } from "next/headers";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 
-import { cn } from "@acme/ui";
-import StandardLayout from "@acme/ui/layout/StandardLayout";
-import { ThemeProvider } from "@acme/ui/theme";
-import { Toaster } from "@acme/ui/toast";
+import { cn } from "@launchthatapp/ui";
+import StandardLayout from "@launchthatapp/ui/layout/StandardLayout";
+import { ThemeProvider } from "@launchthatapp/ui/theme";
+import { Toaster } from "@launchthatapp/ui/toast";
 
 import { Providers } from "./providers";
 

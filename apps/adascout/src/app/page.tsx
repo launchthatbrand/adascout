@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 
 export default function HomePage() {
   return (

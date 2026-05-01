@@ -7,7 +7,7 @@ import {
   EmptyDescription,
   EmptyMedia,
   EmptyTitle,
-} from "@acme/ui/empty";
+} from "@launchthatapp/ui/empty";
 
 export function EmptyState({
   icon,

@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 
-import { Button } from "@acme/ui/button";
+import { Button } from "@launchthatapp/ui/button";
 import {
   Table,
   TableBody,
@@ -11,7 +11,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@acme/ui/table";
+} from "@launchthatapp/ui/table";
 
 import type { ColumnDefinition, EntityAction, SortConfig } from "./types";
 

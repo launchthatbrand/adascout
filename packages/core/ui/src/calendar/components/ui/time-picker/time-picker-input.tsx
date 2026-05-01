@@ -8,7 +8,7 @@ import {
   setDateByType,
 } from "./time-picker-utils";
 
-import { Input } from "@acme/ui/input";
+import { Input } from "@launchthatapp/ui/input";
 import React from "react";
 import { cn } from "../../../../lib/utils";
 

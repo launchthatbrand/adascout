@@ -27,12 +27,12 @@ export default function StandardLayout(props: {
   sidebarDefaultOpen?: boolean;
   /**
    * Overrides the collapsed (icon) sidebar width, e.g. "4rem".
-   * This maps to the `--sidebar-width-icon` CSS variable in `@acme/ui/sidebar`.
+   * This maps to the `--sidebar-width-icon` CSS variable in `@launchthatapp/ui/sidebar`.
    */
   sidebarWidthIcon?: string;
   /**
    * Overrides the expanded desktop sidebar width, e.g. "18rem".
-   * This maps to the `--sidebar-width` CSS variable in `@acme/ui/sidebar`.
+   * This maps to the `--sidebar-width` CSS variable in `@launchthatapp/ui/sidebar`.
    */
   sidebarWidth?: string;
 }) {

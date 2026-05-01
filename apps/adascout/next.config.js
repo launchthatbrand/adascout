@@ -1,7 +1,7 @@
 /** @type {import("next").NextConfig} */
 const config = {
   /** Enables hot reloading for local packages without a build step */
-  transpilePackages: ["@acme/ui"],
+  transpilePackages: ["@launchthatapp/ui"],
 
   /** We already do linting and typechecking as separate tasks in CI */
   typescript: { ignoreBuildErrors: true },

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import type { ColumnDefinition } from "@acme/ui/entity-list";
-import { EntityList } from "@acme/ui/entity-list";
-import { Button } from "@acme/ui/button";
+import type { ColumnDefinition } from "@launchthatapp/ui/entity-list";
+import { EntityList } from "@launchthatapp/ui/entity-list";
+import { Button } from "@launchthatapp/ui/button";
 import { api } from "@/convex/_generated/api";
 
 type WorkflowRow = Record<string, unknown> & {
