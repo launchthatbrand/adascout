@@ -67,14 +67,14 @@ export default function StandardLayout(props: {
       {/* <AppSidebar sidebar={props.sidebar} /> */}
       <SidebarInset
         className={cn(
-          "isolate",
+          "isolate h-screen max-h-screen supports-[height:100dvh]:h-dvh supports-[height:100dvh]:max-h-dvh",
           props.className,
         )}
       >
         <div
           id="lt-layout-scroll-container"
           data-layout-scroll-container
-          className="h-full min-w-0 max-w-full overflow-y-auto flex flex-col"
+          className="h-full min-w-0 max-w-full flex flex-col overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
         >
           {props.bgComponent !== undefined ? props.bgComponent : null}
           {props.header !== undefined ? (

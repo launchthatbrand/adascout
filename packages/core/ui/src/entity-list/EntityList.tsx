@@ -67,6 +67,8 @@ export function EntityList<T extends Record<string, unknown>>({
   selectedId,
   enableSearch,
   enableFooter,
+  initialPageSize,
+  showRowCount,
   customRender,
   customViewLabel,
   customViewRender,
@@ -338,6 +340,8 @@ export function EntityList<T extends Record<string, unknown>>({
         virtualOverscan={virtualOverscan}
         getRowId={getRowId}
         bulkActions={bulkActions}
+        initialPageSize={initialPageSize}
+        showRowCount={showRowCount}
       />
     );
   })();

@@ -37,7 +37,9 @@ export * from "./theme";
 export * from "./entity-list";
 export * from "./json-view";
 export * from "./animated-tooltip";
+export * from "./animated-beam";
 export * from "./animated-list";
+export * from "./code-comparison";
 export * from "./animated-theme-toggler";
 export * from "./iphone-mock";
 export * from "./noise-background";
@@ -45,6 +47,7 @@ export * from "./dotted-glow-background";
 export * from "./features-section";
 export * from "./marketing-slides";
 export * from "./orbiting-circles";
+export * from "./bento-grid";
 export * from "./marquee";
 export * from "./image-crop";
 export * from "./shine-border";
@@ -69,6 +72,8 @@ export * from "./progressive-blur";
 export * from "./avatar-circles";
 export * from "./confetti";
 export * from "./components/ui/background-boxes";
+export * from "./components/ui/timeline";
+export * from "./components/timeline-demo";
 export * from "./retro-grid";
 export * from "./aurora-text";
 export * from "./components/ui/resizable-navbar";
@@ -77,3 +82,5 @@ export {
   Carousel,
   Card as AppleCarouselCard,
 } from "./components/ui/apple-cards-carousel";
+export * from "./components/ui/3d-marquee";
+export * from "./components/3d-marquee-demo";

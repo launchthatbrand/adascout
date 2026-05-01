@@ -88,11 +88,22 @@ export const MessageAction = ({
   children,
   label,
   variant = "ghost",
-  size = "icon-sm",
+  size,
   ...props
 }: MessageActionProps) => {
+  const resolvedSize = size ?? "icon";
+  const resolvedClassName = cn(
+    size == null && resolvedSize === "icon" ? "size-8" : null,
+    props.className
+  );
   const button = (
-    <Button size={size} type="button" variant={variant} {...props}>
+    <Button
+      size={resolvedSize}
+      type="button"
+      variant={variant}
+      {...props}
+      className={resolvedClassName}
+    >
       {children}
       <span className="sr-only">{label || tooltip}</span>
     </Button>
@@ -266,7 +277,8 @@ export const MessageBranchPrevious = ({
       aria-label="Previous branch"
       disabled={totalBranches <= 1}
       onClick={goToPrevious}
-      size="icon-sm"
+      size="icon"
+      className={cn("size-8", props.className)}
       type="button"
       variant="ghost"
       {...props}
@@ -289,7 +301,8 @@ export const MessageBranchNext = ({
       aria-label="Next branch"
       disabled={totalBranches <= 1}
       onClick={goToNext}
-      size="icon-sm"
+      size="icon"
+      className={cn("size-8", props.className)}
       type="button"
       variant="ghost"
       {...props}
@@ -322,7 +335,12 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
-const streamdownPlugins = { cjk, code, math, mermaid };
+const streamdownPlugins = {
+  cjk,
+  code,
+  math,
+  mermaid,
+} as unknown as NonNullable<ComponentProps<typeof Streamdown>["plugins"]>;
 
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (

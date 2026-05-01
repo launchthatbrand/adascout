@@ -86,6 +86,8 @@ export function EntityListView<T extends Record<string, unknown>>({
   virtualOverscan = 8,
   getRowId,
   bulkActions,
+  initialPageSize = 20,
+  showRowCount = false,
 }: EntityListViewProps<T>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -157,6 +159,7 @@ export function EntityListView<T extends Record<string, unknown>>({
                 table.toggleAllPageRowsSelected(!!value)
               }
               aria-label="Select all"
+              className="border-black rounded-sm!"
             />
           </div>
         ),
@@ -169,6 +172,7 @@ export function EntityListView<T extends Record<string, unknown>>({
               checked={row.getIsSelected()}
               onCheckedChange={(value) => row.toggleSelected(!!value)}
               aria-label="Select row"
+              className="border-black rounded-sm!"
             />
           </div>
         ),
@@ -233,10 +237,10 @@ export function EntityListView<T extends Record<string, unknown>>({
           : JSON.stringify(row),
     initialState: enableFooter
       ? {
-          pagination: {
-            pageSize: 20,
-          },
-        }
+        pagination: {
+          pageSize: initialPageSize,
+        },
+      }
       : undefined,
     enableRowSelection,
   });
@@ -357,8 +361,18 @@ export function EntityListView<T extends Record<string, unknown>>({
       ? Math.max(tableRows.length - endIndex, 0) * safeRowHeight
       : 0;
 
+    const totalRows = table.getFilteredRowModel().rows.length;
+    const pageRows = enableFooter ? table.getRowModel().rows.length : totalRows;
+
     return (
       <div className="min-w-0 w-full max-w-full">
+        {showRowCount ? (
+          <p className="text-muted-foreground mb-1.5 text-xs">
+            {enableFooter && pageRows < totalRows
+              ? `Showing ${pageRows} of ${totalRows} records`
+              : `${totalRows} record${totalRows === 1 ? "" : "s"}`}
+          </p>
+        ) : null}
         {enableRowSelection && selectedItems.length > 0 && bulkActions ? (
           <div className="bg-muted/40 border-input mb-3 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
             {bulkActions({
@@ -369,98 +383,103 @@ export function EntityListView<T extends Record<string, unknown>>({
         ) : null}
         <div
           ref={virtualScrollRef}
-          className="w-full max-w-full overflow-x-auto overflow-y-visible overscroll-x-contain rounded-md border touch-pan-x [-webkit-overflow-scrolling:touch] md:max-h-[70vh] md:overflow-auto md:overscroll-y-contain"
-            onScroll={(event) => {
-              if (!useVirtualRows) return;
-              setVirtualScrollTop(event.currentTarget.scrollTop);
-            }}
+          className="w-full max-w-full overflow-x-auto overflow-y-visible overscroll-x-contain rounded-md border touch-pan-x [-webkit-overflow-scrolling:touch] md:max-h-[85vh] md:overflow-auto md:overscroll-y-contain"
+          onScroll={(event) => {
+            if (!useVirtualRows) return;
+            setVirtualScrollTop(event.currentTarget.scrollTop);
+          }}
         >
-            <Table className="min-w-max" containerClassName="overflow-visible">
-              <TableHeader className="bg-background">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id}>
-                    {headerGroup.headers.map((header, headerIndex) => {
-                      const isLastHeader =
-                        headerIndex === headerGroup.headers.length - 1;
-                      return (
-                        <TableHead
-                          key={header.id}
-                          className={`bg-background supports-backdrop-filter:bg-background/95 border-border/40 sticky top-0 z-20 shadow-[0_2px_6px_-6px_rgba(0,0,0,0.25)] ${isLastHeader ? "" : "border-r"
-                            }`}
-                        >
-                          {header.isPlaceholder
-                            ? null
-                            : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
-                            )}
-                        </TableHead>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {tableRows?.length ? (
-                  <>
-                    {useVirtualRows && topSpacerHeight > 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={tableColumns.length}
-                          style={{ height: `${topSpacerHeight}px`, padding: 0 }}
-                        />
-                      </TableRow>
-                    ) : null}
-                    {visibleRows.map((row) => (
-                      <TableRow
-                        key={row.id}
-                        data-state={row.getIsSelected() && "selected"}
-                        className={onRowClick ? "cursor-pointer" : ""}
-                        onClick={() => onRowClick?.(row.original)}
+          <Table className="min-w-max" containerClassName="overflow-visible">
+            <TableHeader className="bg-background">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header, headerIndex) => {
+                    const isLastHeader =
+                      headerIndex === headerGroup.headers.length - 1;
+                    return (
+                      <TableHead
+                        key={header.id}
+                        className={`bg-background supports-backdrop-filter:bg-background/95 border-border/40 sticky top-0 z-20 shadow-[0_2px_6px_-6px_rgba(0,0,0,0.25)] ${isLastHeader ? "" : "border-r"
+                          }`}
                       >
-                        {row.getVisibleCells().map((cell, cellIndex) => {
-                          const isLastCell =
-                            cellIndex === row.getVisibleCells().length - 1;
-                          return (
-                            <TableCell
-                              key={cell.id}
-                              className={`border-border/30 ${isLastCell ? "" : "border-r"}`}
-                            >
-                              {flexRender(
-                                cell.column.columnDef.cell,
-                                cell.getContext(),
-                              )}
-                            </TableCell>
-                          );
-                        })}
-                      </TableRow>
-                    ))}
-                    {useVirtualRows && bottomSpacerHeight > 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={tableColumns.length}
-                          style={{
-                            height: `${bottomSpacerHeight}px`,
-                            padding: 0,
-                          }}
-                        />
-                      </TableRow>
-                    ) : null}
-                  </>
-                ) : (
-                  <TableRow>
-                    <TableCell
-                      colSpan={tableColumns.length}
-                      className="h-24 text-center"
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
+                      </TableHead>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {tableRows?.length ? (
+                <>
+                  {useVirtualRows && topSpacerHeight > 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={tableColumns.length}
+                        style={{ height: `${topSpacerHeight}px`, padding: 0 }}
+                      />
+                    </TableRow>
+                  ) : null}
+                  {visibleRows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && "selected"}
+                      className={onRowClick ? "cursor-pointer" : ""}
+                      onClick={() => onRowClick?.(row.original)}
                     >
-                      No results.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                      {row.getVisibleCells().map((cell, cellIndex) => {
+                        const isLastCell =
+                          cellIndex === row.getVisibleCells().length - 1;
+                        return (
+                          <TableCell
+                            key={cell.id}
+                            className={`border-border/30 ${isLastCell ? "" : "border-r"}`}
+                          >
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            )}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  ))}
+                  {useVirtualRows && bottomSpacerHeight > 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={tableColumns.length}
+                        style={{
+                          height: `${bottomSpacerHeight}px`,
+                          padding: 0,
+                        }}
+                      />
+                    </TableRow>
+                  ) : null}
+                </>
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={tableColumns.length}
+                    className="h-24 text-center"
+                  >
+                    No results.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
         {enableFooter && <EntityListFooter table={table} />}
+        {showRowCount && !enableFooter ? (
+          <p className="text-muted-foreground mt-1.5 text-xs">
+            {totalRows} record{totalRows === 1 ? "" : "s"}
+          </p>
+        ) : null}
       </div>
     );
   }

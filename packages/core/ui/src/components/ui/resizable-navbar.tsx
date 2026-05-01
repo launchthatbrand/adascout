@@ -72,19 +72,24 @@ export const Navbar = ({
 }: NavbarProps) => {
   const ref = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const [hasResolvedScrollContainer, setHasResolvedScrollContainer] = useState(false);
   const [visible, setVisible] = useState<boolean>(false);
 
   useEffect(() => {
     if (scrollContainer === "window") {
       scrollContainerRef.current = null;
+      setHasResolvedScrollContainer(false);
       return;
     }
     const el = document.querySelector<HTMLElement>(scrollContainer);
     scrollContainerRef.current = el;
+    setHasResolvedScrollContainer(Boolean(el));
   }, [scrollContainer]);
 
   const { scrollY } = useScroll({
-    container: scrollContainerRef as React.RefObject<HTMLElement>,
+    container: hasResolvedScrollContainer
+      ? (scrollContainerRef as React.RefObject<HTMLElement>)
+      : undefined,
   });
 
   useMotionValueEvent(scrollY, "change", (latest) => {
@@ -129,7 +134,7 @@ export const NavBody = ({ children, className, visible }: NavBodyProps) => {
         damping: 50,
       }}
       style={{
-        minWidth: "800px",
+        minWidth: "1000px",
       }}
       className={cn(
         "relative z-[60] mx-auto hidden w-full max-w-7xl flex-row items-center justify-between self-start rounded-full bg-transparent px-4 py-2 lg:flex dark:bg-transparent",
@@ -332,14 +337,16 @@ export const MobileNavMenu = ({
 export const MobileNavToggle = ({
   isOpen,
   onClick,
+  className,
 }: {
   isOpen: boolean;
   onClick: () => void;
+  className?: string;
 }) => {
   return isOpen ? (
-    <IconX className="text-black dark:text-white" onClick={onClick} />
+    <IconX className={cn("text-black dark:text-white", className)} onClick={onClick} />
   ) : (
-    <IconMenu2 className="text-black dark:text-white" onClick={onClick} />
+    <IconMenu2 className={cn("text-black dark:text-white", className)} onClick={onClick} />
   );
 };
 
