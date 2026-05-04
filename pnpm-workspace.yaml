@@ -1,12 +1,19 @@
 packages:
   - apps/*
-  - packages/*
+  - packages/api
+  - packages/auth
+  - packages/db
+  - packages/ui
+  - packages/validators
+  - packages/core/*
+  - packages/plugins/*
   - tooling/*
 
 catalog:
   "@better-auth/cli": 1.4.0-beta.9
   "@better-auth/expo": 1.4.0-beta.9
   "@eslint/js": ^9.38.0
+  convex: ^1.34.0
   "@tailwindcss/postcss": ^4.1.16
   "@tailwindcss/vite": ^4.1.16
   "@tanstack/react-form": ^1.23.8
