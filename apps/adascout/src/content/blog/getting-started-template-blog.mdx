@@ -1,0 +1,38 @@
+---
+title: "Getting Started With The Template Blog"
+description: "How to use the included MDX blog foundation in the frontend template."
+slug: "getting-started-template-blog"
+publishedAt: "2026-02-19"
+author: "LaunchThat Team"
+tags: ["template", "mdx", "blog"]
+product: "template"
+status: "published"
+---
+
+The template includes a full MDX blog pipeline so every new app can start publishing quickly.
+
+## What is included
+
+- `src/content/blog/*.mdx` content files
+- `src/lib/blog.ts` parser and typed metadata
+- `/blog` and `/blog/[slug]` routes
+- reusable MDX components under `src/components/blog`
+
+<Callout title="Tip" type="tip">
+  Keep frontmatter fields consistent across posts so sorting and metadata
+  generation remain predictable.
+</Callout>
+
+### Recommended flow
+
+<Checklist
+  title="Publish workflow"
+  items={[
+    "Create a new .mdx file under src/content/blog.",
+    "Set status to published.",
+    "Add a hero image under public/blog/<slug>/.",
+    "Open /blog and verify rendering."
+  ]}
+/>
+
+<InlineCta label="View the full blog index" href="/blog" />

@@ -1,0 +1,54 @@
+{
+  "name": "launchthat-plugin-auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./convex/component": {
+      "types": "./dist/convex/component/index.d.ts",
+      "default": "./src/convex/component/index.ts"
+    },
+    "./convex/component/convex.config": {
+      "types": "./dist/convex/component/convex.config.d.ts",
+      "default": "./src/convex/component/convex.config.ts"
+    },
+    "./convex/component/auth": {
+      "types": "./dist/convex/component/auth.d.ts",
+      "default": "./src/convex/component/auth.ts"
+    },
+    "./auth.config": {
+      "types": "./dist/auth.config.d.ts",
+      "default": "./src/auth.config.ts"
+    }
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "dev": "tsc",
+    "format": "prettier --check . --ignore-path ../../.gitignore",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit --emitDeclarationOnly false"
+  },
+  "dependencies": {
+    "@convex-dev/auth": "^0.0.90"
+  },
+  "devDependencies": {
+    "@acme/eslint-config": "workspace:*",
+    "@acme/prettier-config": "workspace:*",
+    "@acme/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "convex": "catalog:",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "convex": "catalog:"
+  },
+  "prettier": "@acme/prettier-config"
+}
