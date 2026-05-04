@@ -2,18 +2,12 @@
 
 import {
   AnimatedThemeToggler,
-  MobileNav,
-  MobileNavHeader,
-  MobileNavMenu,
-  MobileNavToggle,
-  NavBody,
-  NavItems,
-  Navbar,
   NavbarButton,
   Separator,
 } from "@launchthatapp/ui";
 
 import Link from "next/link";
+import { Menu, X } from "lucide-react";
 import { useState } from "react";
 
 interface NavItem {
@@ -32,16 +26,27 @@ export default function HeaderDefault() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <div className="absolute top-0 left-0 w-full z-10">
-      <Navbar className="top-0">
-        <NavBody className="px-2.5 md:flex !min-w-0">
+    <header className="absolute top-0 left-0 z-10 w-full">
+      <div className="mx-auto flex w-full max-w-7xl flex-col px-2.5 pt-2">
+        <div className="hidden items-center justify-between rounded-full bg-background/70 px-4 py-2 shadow-sm backdrop-blur-md md:flex">
           <Link href="/" className="flex items-center gap-2">
             <div className="text-foreground text-lg font-medium tracking-wide">
               <span className="font-bold">ADA Scout</span>
             </div>
           </Link>
 
-          <NavItems items={navItems} className="md:flex" />
+          <nav className="flex items-center gap-6">
+            {navItems.map((item) => (
+              <Link
+                key={item.link}
+                href={item.link}
+                className="text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
+              >
+                {item.name}
+              </Link>
+            ))}
+          </nav>
+
           <div className="relative flex items-center gap-4">
             <div className="flex h-full min-h-10 flex-1 items-stretch">
               <AnimatedThemeToggler className="bg-background h-full min-h-10" />
@@ -52,48 +57,50 @@ export default function HeaderDefault() {
             />
             <NavbarButton variant="primary">Get Started</NavbarButton>
           </div>
-        </NavBody>
+        </div>
 
-        <MobileNav className="md:hidden">
-          <MobileNavHeader className="px-4 py-2">
+        <div className="md:hidden">
+          <div className="flex items-center justify-between rounded-full bg-background/70 px-4 py-2 shadow-sm backdrop-blur-md">
             <Link href="/" className="flex items-center gap-2">
               <div className="text-foreground text-lg font-medium tracking-wide">
                 <span className="font-bold">ADA Scout</span>
               </div>
             </Link>
-            <MobileNavToggle
-              isOpen={isMobileMenuOpen}
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            />
-          </MobileNavHeader>
+            <button
+              type="button"
+              aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+              onClick={() => setIsMobileMenuOpen((open) => !open)}
+              className="text-foreground inline-flex items-center justify-center rounded-md p-2"
+            >
+              {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
 
-          <MobileNavMenu
-            isOpen={isMobileMenuOpen}
-            onClose={() => setIsMobileMenuOpen(false)}
-          >
-            {navItems.map((item, idx) => (
-              <div key={`mobile-link-${idx}`}>
-                <a
+          {isMobileMenuOpen ? (
+            <div className="bg-background/95 border-border mt-2 flex w-full flex-col gap-4 rounded-xl border px-4 py-5 shadow-lg backdrop-blur-md">
+              {navItems.map((item) => (
+                <Link
+                  key={item.link}
                   href={item.link}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="relative text-neutral-600 dark:text-neutral-300"
+                  className="text-muted-foreground hover:text-foreground text-sm font-medium transition-colors"
                 >
-                  <span className="block">{item.name}</span>
-                </a>
+                  {item.name}
+                </Link>
+              ))}
+              <div className="mt-2 flex w-full flex-col gap-4">
+                <NavbarButton
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  variant="primary"
+                  className="w-full"
+                >
+                  Get Started
+                </NavbarButton>
               </div>
-            ))}
-            <div className="mt-4 flex w-full flex-col gap-4">
-              <NavbarButton
-                onClick={() => setIsMobileMenuOpen(false)}
-                variant="primary"
-                className="w-full"
-              >
-                Get Started
-              </NavbarButton>
             </div>
-          </MobileNavMenu>
-        </MobileNav>
-      </Navbar>
-    </div>
+          ) : null}
+        </div>
+      </div>
+    </header>
   );
 }
