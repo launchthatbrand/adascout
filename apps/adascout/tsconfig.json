@@ -5,8 +5,7 @@
     "jsx": "preserve",
     "paths": {
       "~/*": ["./src/*"],
-      "@/convex/*": ["./convex/*"],
-      "@acme/dnd": ["../../packages/core/dnd/src/index.ts"]
+      "@/convex/*": ["./convex/*"]
     },
     "plugins": [{ "name": "next" }]
   },

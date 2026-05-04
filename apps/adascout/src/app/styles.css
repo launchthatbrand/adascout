@@ -2,7 +2,8 @@
 @import "tw-animate-css";
 @import "@acme/tailwind-config/theme";
 
-@source "../../../../packages/core/ui/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@launchthatapp/ui/src/*.{ts,tsx}";
+@source "../../../../node_modules/@launchthatapp/ui/src/**/*.{ts,tsx}";
 
 @custom-variant dark (&:where(.dark, .dark *));
 @custom-variant light (&:where(.light, .light *));

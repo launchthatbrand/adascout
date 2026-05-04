@@ -5,7 +5,6 @@ packages:
   - packages/db
   - packages/ui
   - packages/validators
-  - packages/core/*
   - packages/plugins/*
   - tooling/*
 

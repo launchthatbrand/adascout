@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import ExcelJS from "exceljs";
-import { BuilderDndProvider, SortableList } from "@acme/dnd";
+import { BuilderDndProvider, SortableList } from "@launchthatapp/dnd";
 import { Button } from "@launchthatapp/ui/button";
 import { Badge } from "@launchthatapp/ui/badge";
 import { Input } from "@launchthatapp/ui/input";

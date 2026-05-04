@@ -1,20 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-
 import {
   AnimatedThemeToggler,
   MobileNav,
   MobileNavHeader,
   MobileNavMenu,
   MobileNavToggle,
-  Navbar,
-  NavbarButton,
   NavBody,
   NavItems,
+  Navbar,
+  NavbarButton,
   Separator,
 } from "@launchthatapp/ui";
+
+import Link from "next/link";
+import { useState } from "react";
 
 interface NavItem {
   name: string;
@@ -32,16 +32,16 @@ export default function HeaderDefault() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <div className="absolute top-0 left-0 w-full">
+    <div className="absolute top-0 left-0 w-full z-10">
       <Navbar className="top-0">
-        <NavBody className="px-2.5">
+        <NavBody className="px-2.5 md:flex !min-w-0">
           <Link href="/" className="flex items-center gap-2">
             <div className="text-foreground text-lg font-medium tracking-wide">
               <span className="font-bold">ADA Scout</span>
             </div>
           </Link>
 
-          <NavItems items={navItems} />
+          <NavItems items={navItems} className="md:flex" />
           <div className="relative flex items-center gap-4">
             <div className="flex h-full min-h-10 flex-1 items-stretch">
               <AnimatedThemeToggler className="bg-background h-full min-h-10" />
@@ -54,7 +54,7 @@ export default function HeaderDefault() {
           </div>
         </NavBody>
 
-        <MobileNav>
+        <MobileNav className="md:hidden">
           <MobileNavHeader className="px-4 py-2">
             <Link href="/" className="flex items-center gap-2">
               <div className="text-foreground text-lg font-medium tracking-wide">
